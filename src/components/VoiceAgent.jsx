@@ -1,78 +1,35 @@
 /**
  * ═══════════════════════════════════════════════════════════
- * VoiceAgent v8 — Bulletproof Listening + Navigation Guidance
+ * VoiceAgent v9 — Conversational Knowledge Base
  *
- * FIXES:
- *   1. Recognition starts AFTER greeting finishes (no interference)
- *   2. Route-change detection → speaks screen-specific guidance
- *   3. Robust restart loop with exponential backoff
- *   4. Console logging for every state change (debugging)
- *   5. Post-navigation announcements ("ab consumer number dalein")
+ * Uses voiceKnowledgeBase.js for guided conversation flow.
+ * The agent IS the guide — asks questions, understands answers,
+ * navigates, and explains what to do on each page.
  *
  * FLOW:
- *   voiceMode=true → auto-activate → GREET → wait for greeting end
- *   → START recognition → listen → process → stream Gemini → TTS
- *   → route changes → announce new screen → keep listening
- *   → barge-in: user speaks during TTS → cancel → listen
+ *   voiceMode=true → INITIAL greeting ("Aadhaar hai?")
+ *   → User answers → citizen/guest path chosen
+ *   → Navigate + announce what to do
+ *   → Keep listening for next command
+ *   → Common Q&A answered instantly (no API)
+ *   → Unknown → Gemini fallback
  * ═══════════════════════════════════════════════════════════
  */
 
 import { useState, useCallback, useRef, useEffect, memo } from 'react';
 import { useLocation } from 'react-router-dom';
 import VoiceContext from './VoiceContext';
-import { streamGeminiResponse, stopSpeaking, speakText, hasApiKeys } from '../utils/geminiVoiceAgent';
+import { streamGeminiResponse, stopSpeaking, hasApiKeys } from '../utils/geminiVoiceAgent';
+import {
+    CONV_STATES, CITIZEN_KEYWORDS, GUEST_KEYWORDS, BILL_KEYWORDS,
+    COMPLAINT_KEYWORDS, BACK_KEYWORDS, HOME_KEYWORDS, STOP_KEYWORDS,
+    matchesKeywords, detectBillType, findCommonAnswer, getPageGuidance,
+    getResponse, getInitialGreeting,
+} from '../utils/voiceKnowledgeBase';
 
 const SPEECH_LANGS = {
     en: 'en-IN', hi: 'hi-IN', pa: 'pa-IN', bn: 'bn-IN',
     ta: 'ta-IN', te: 'te-IN', kn: 'kn-IN', mr: 'mr-IN',
-};
-
-// ── Quick nav keywords (instant, 0ms) ────────────────
-const NAV_KEYWORDS = {
-    electricity: { words: ['bijli', 'electricity', 'electric', 'बिजली', 'ਬਿਜਲੀ', 'light', 'bijlee', 'lite', 'bill'], route: '/bill/electricity' },
-    water: { words: ['paani', 'water', 'jal', 'पानी', 'ਪਾਣੀ', 'pani'], route: '/bill/water' },
-    gas: { words: ['gas', 'गैस', 'ਗੈਸ', 'lpg', 'cylinder'], route: '/bill/gas' },
-    complaint: { words: ['complaint', 'shikayat', 'शिकायत', 'ਸ਼ਿਕਾਇਤ', 'problem', 'samasya', 'समस्या'], route: '/complaint' },
-    home: { words: ['home', 'ghar', 'shuru', 'होम', 'ਹੋਮ'], route: '/' },
-    back: { words: ['back', 'peeche', 'wapas', 'पीछे', 'ਪਿੱਛੇ', 'vapas'], route: '__BACK__' },
-    guest: { words: ['guest', 'quick pay', 'bina login', 'बिना लॉगिन', 'क्विक'], route: '__GUEST__' },
-    login: { words: ['login', 'citizen', 'aadhaar', 'नागरिक', 'लॉगिन', 'आधार'], route: '__LOGIN__' },
-};
-
-function detectNav(text) {
-    const lower = text.toLowerCase();
-    for (const [, { words, route }] of Object.entries(NAV_KEYWORDS))
-        if (words.some(w => lower.includes(w))) return route;
-    return null;
-}
-
-function isStopCmd(text) {
-    return ['stop', 'band karo', 'ruko', 'बंद करो', 'रुको', 'ਬੰਦ', 'chup', 'bye', 'touch mode']
-        .some(s => text.toLowerCase().includes(s));
-}
-
-// ── Screen guidance messages ──────────────────────────
-const SCREEN_GUIDANCE = {
-    '/': {
-        hi: 'यह होम पेज है। कौन सा बिल भरना है? बिजली, पानी, या गैस?',
-        en: 'This is the home page. Which bill? Electricity, water, or gas?',
-    },
-    '/bill/electricity': {
-        hi: 'बिजली बिल पेज खुल गया। अब नीचे दिए नंबर पैड से consumer number डालें, या बोलें।',
-        en: 'Electricity bill page is open. Enter your consumer number using the keypad below, or tell me.',
-    },
-    '/bill/water': {
-        hi: 'पानी बिल पेज खुल गया। Consumer number डालें।',
-        en: 'Water bill page is open. Enter your consumer number.',
-    },
-    '/bill/gas': {
-        hi: 'गैस बिल पेज खुल गया। Consumer number डालें।',
-        en: 'Gas bill page is open. Enter your consumer number.',
-    },
-    '/complaint': {
-        hi: 'शिकायत पेज खुल गया। नीचे से श्रेणी चुनें, या मुझे बताएं क्या समस्या है।',
-        en: 'Complaint page is open. Choose a category below, or tell me your issue.',
-    },
 };
 
 const VoiceAgent = memo(function VoiceAgent({
@@ -96,79 +53,57 @@ const VoiceAgent = memo(function VoiceAgent({
     const lastInterimRef = useRef('');
     const lastRouteRef = useRef('');
     const restartCountRef = useRef(0);
-    const maxRestartsRef = useRef(50);
+    const convStateRef = useRef(CONV_STATES.INITIAL);
 
     const location = useLocation();
 
     useEffect(() => { langRef.current = lang; }, [lang]);
     useEffect(() => { screenRef.current = screen; }, [screen]);
 
-    // ── LOG HELPER ──────────────────────────────────
     const log = useCallback((msg) => {
-        console.log(`[VoiceAgent] ${msg}`);
+        console.log(`[VA] ${msg}`);
         addLog?.(msg);
     }, [addLog]);
 
-    // ── TTS (speak and wait for it to finish) ───────
+    // ── TTS ──────────────────────────────────────────
     const ttsSpeak = useCallback((text, langCode) => {
         return new Promise((resolve) => {
             if (!window.speechSynthesis || !text) { resolve(); return; }
             window.speechSynthesis.cancel();
-
             const u = new SpeechSynthesisUtterance(text);
             u.lang = SPEECH_LANGS[langCode] || 'hi-IN';
-            u.rate = 1.05;
-            u.pitch = 1;
-            u.volume = 1;
-
+            u.rate = 1.05; u.pitch = 1; u.volume = 1;
             const voices = window.speechSynthesis.getVoices();
             const v = voices.find(v => v.lang === u.lang) || voices.find(v => v.lang.startsWith(langCode));
             if (v) u.voice = v;
-
-            u.onend = () => {
-                isSpeakingRef.current = false;
-                resolve();
-            };
-            u.onerror = () => {
-                isSpeakingRef.current = false;
-                resolve();
-            };
-
+            u.onend = () => { isSpeakingRef.current = false; resolve(); };
+            u.onerror = () => { isSpeakingRef.current = false; resolve(); };
             isSpeakingRef.current = true;
             setStatus('speaking');
             window.speechSynthesis.speak(u);
         });
     }, []);
 
-    // ── Queue TTS (append without cancelling) ───────
     const queueTTS = useCallback((text, langCode) => {
         return new Promise((resolve) => {
             if (!window.speechSynthesis || !text || bargedInRef.current) { resolve(); return; }
-
             const u = new SpeechSynthesisUtterance(text);
             u.lang = SPEECH_LANGS[langCode] || 'hi-IN';
-            u.rate = 1.05;
-            u.pitch = 1;
-            u.volume = 1;
-
+            u.rate = 1.05; u.pitch = 1; u.volume = 1;
             const voices = window.speechSynthesis.getVoices();
             const v = voices.find(v => v.lang === u.lang) || voices.find(v => v.lang.startsWith(langCode));
             if (v) u.voice = v;
-
             u.onend = () => resolve();
             u.onerror = () => resolve();
             window.speechSynthesis.speak(u);
         });
     }, []);
 
-    // ═══ RECOGNITION — BULLETPROOF LOOP ═══════════════
+    // ═══ RECOGNITION ═════════════════════════════════
 
     const startRecognition = useCallback(() => {
         const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-        if (!SR) { log('❌ SpeechRecognition not supported!'); return; }
-        if (!isActiveRef.current) return;
-
-        // Stop any existing
+        if (!SR || !isActiveRef.current) return;
         try { recognitionRef.current?.abort(); } catch { }
 
         const r = new SR();
@@ -178,7 +113,7 @@ const VoiceAgent = memo(function VoiceAgent({
         r.maxAlternatives = 1;
 
         r.onstart = () => {
-            log('🎧 Recognition STARTED');
+            log('🎧 Listening...');
             restartCountRef.current = 0;
             if (!isSpeakingRef.current) setStatus('listening');
         };
@@ -186,9 +121,9 @@ const VoiceAgent = memo(function VoiceAgent({
         r.onresult = (e) => {
             const last = e.results[e.results.length - 1];
 
-            // ── BARGE-IN ──
+            // BARGE-IN
             if (isSpeakingRef.current) {
-                log('🔇 BARGE-IN detected!');
+                log('🔇 Barge-in!');
                 window.speechSynthesis.cancel();
                 isSpeakingRef.current = false;
                 bargedInRef.current = true;
@@ -197,25 +132,21 @@ const VoiceAgent = memo(function VoiceAgent({
 
             if (last.isFinal) {
                 const t = last[0].transcript.trim();
-                log(`📝 Final: "${t}"`);
+                log(`📝 "${t}"`);
                 lastInterimRef.current = '';
                 setInterimText('');
                 clearTimeout(silenceTimerRef.current);
-                if (t.length > 1 && !processingRef.current) {
-                    handleTranscript(t);
-                }
+                if (t.length > 1 && !processingRef.current) handleTranscript(t);
             } else {
-                const interim = last[0].transcript;
-                lastInterimRef.current = interim;
-                setInterimText(interim);
+                lastInterimRef.current = last[0].transcript;
+                setInterimText(last[0].transcript);
                 if (!isSpeakingRef.current) setStatus('listening');
 
-                // Silence fallback timer — if no new results for 1.5s, process
                 clearTimeout(silenceTimerRef.current);
                 silenceTimerRef.current = setTimeout(() => {
                     const t = lastInterimRef.current?.trim();
                     if (t && t.length > 2 && !processingRef.current) {
-                        log(`⏱️ Silence timer: processing "${t}"`);
+                        log(`⏱️ Silence: "${t}"`);
                         handleTranscript(t);
                         lastInterimRef.current = '';
                         setInterimText('');
@@ -225,43 +156,31 @@ const VoiceAgent = memo(function VoiceAgent({
         };
 
         r.onerror = (e) => {
-            log(`⚠️ Recognition error: ${e.error}`);
             if (['no-speech', 'aborted'].includes(e.error)) {
                 if (isActiveRef.current) {
-                    const delay = Math.min(500 * (restartCountRef.current + 1), 3000);
                     restartCountRef.current++;
-                    if (restartCountRef.current < maxRestartsRef.current) {
-                        setTimeout(() => startRecognition(), delay);
-                    }
+                    if (restartCountRef.current < 50) setTimeout(() => startRecognition(), Math.min(500 * restartCountRef.current, 3000));
                 }
                 return;
             }
-            // Other errors: retry with delay
-            if (isActiveRef.current && restartCountRef.current < maxRestartsRef.current) {
+            if (isActiveRef.current && restartCountRef.current < 50) {
                 restartCountRef.current++;
                 setTimeout(() => startRecognition(), 1500);
             }
         };
 
         r.onend = () => {
-            log('🔄 Recognition ended, restarting...');
-            if (isActiveRef.current && restartCountRef.current < maxRestartsRef.current) {
+            if (isActiveRef.current && restartCountRef.current < 50) {
                 restartCountRef.current++;
                 setTimeout(() => startRecognition(), 300);
             }
         };
 
         recognitionRef.current = r;
-        try {
-            r.start();
-            log('🚀 Recognition .start() called');
-        } catch (err) {
-            log(`❌ Recognition .start() failed: ${err.message}`);
-            if (isActiveRef.current) setTimeout(() => startRecognition(), 1000);
-        }
+        try { r.start(); } catch { if (isActiveRef.current) setTimeout(() => startRecognition(), 1000); }
     }, [log]);
 
-    // ═══ PROCESS TRANSCRIPT ═══════════════════════════
+    // ═══ KNOWLEDGE-BASE PROCESSING ═══════════════════
 
     const handleTranscript = useCallback(async (transcript) => {
         if (processingRef.current) return;
@@ -272,110 +191,164 @@ const VoiceAgent = memo(function VoiceAgent({
         setInterimText('');
         lastInterimRef.current = '';
         setStatus('processing');
-        log(`🎤 Processing: "${transcript}"`);
+        log(`🎤 [${convStateRef.current}] "${transcript}"`);
 
-        // Stop command
-        if (isStopCmd(transcript)) {
-            setLastReply('ठीक है, बंद कर रहा हूँ');
-            await ttsSpeak('ठीक है, बंद कर रहा हूँ।', langRef.current);
+        const L = langRef.current;
+
+        // ── STOP ──
+        if (matchesKeywords(transcript, STOP_KEYWORDS)) {
+            const r = getResponse('stopping', L);
+            setLastReply(r);
+            await ttsSpeak(r, L);
             deactivateVoice();
             processingRef.current = false;
             return;
         }
 
-        // Quick nav detection
-        const navRoute = detectNav(transcript);
-        if (navRoute) log(`🗺️ Nav keyword detected: ${navRoute}`);
-
-        // Execute nav immediately for flow actions
-        if (navRoute === '__GUEST__') {
-            setScreen('guest'); navigate('/');
-            setLastReply('ठीक है, Quick Pay खुल रहा है');
-            await ttsSpeak(langRef.current === 'hi' ? 'ठीक है, Quick Pay खुल रहा है। कौन सा बिल भरना है?' : 'Opening Quick Pay. Which bill?', langRef.current);
-            if (isActiveRef.current) setStatus('listening');
-            processingRef.current = false;
-            return;
-        }
-        if (navRoute === '__LOGIN__') {
-            setScreen('citizen-auth');
-            setLastReply('ठीक है, लॉगिन पेज खुल रहा है');
-            await ttsSpeak(langRef.current === 'hi' ? 'ठीक है, लॉगिन पेज खुल रहा है।' : 'Opening login page.', langRef.current);
-            if (isActiveRef.current) setStatus('listening');
-            processingRef.current = false;
-            return;
-        }
-        if (navRoute === '__BACK__') {
+        // ── BACK ──
+        if (matchesKeywords(transcript, BACK_KEYWORDS)) {
             navigate(-1);
             processingRef.current = false;
+            if (isActiveRef.current) setStatus('listening');
             return;
         }
-        if (navRoute && navRoute !== '__BACK__') {
-            navigate(navRoute);
-            // Guidance will be spoken by route-change detector
+
+        // ── HOME ──
+        if (matchesKeywords(transcript, HOME_KEYWORDS)) {
+            navigate('/');
             processingRef.current = false;
             return;
         }
 
-        // ── No quick nav → ask Gemini ──
-        if (!hasApiKeys()) {
-            log('❌ No API keys!');
-            setLastReply('API keys missing');
-            await ttsSpeak('API keys are not configured. Please check your .env file.', 'en');
+        // ── COMMON Q&A (instant, no API) ──
+        const qa = findCommonAnswer(transcript, L);
+        if (qa) {
+            log('📚 Common Q&A match');
+            setLastReply(qa);
+            await ttsSpeak(qa, L);
             if (isActiveRef.current) setStatus('listening');
             processingRef.current = false;
             return;
         }
 
-        try {
-            let fullReply = '';
-            let firstSent = false;
-            let geminiNav = null;
+        // ══════════════════════════════════════════════
+        // STATE MACHINE
+        // ══════════════════════════════════════════════
 
-            const result = await streamGeminiResponse(
-                transcript,
-                langRef.current,
-                `${screenRef.current} | ${window.location.pathname}`,
-                async (sentence, idx) => {
-                    if (bargedInRef.current) return;
-                    fullReply += (idx > 0 ? ' ' : '') + sentence;
-                    setLastReply(fullReply);
+        const state = convStateRef.current;
 
-                    if (idx === 0) {
-                        isSpeakingRef.current = true;
-                        setStatus('speaking');
-                        firstSent = true;
+        // ── WAIT_PATH: waiting for citizen/guest answer ──
+        if (state === CONV_STATES.WAIT_PATH || state === CONV_STATES.INITIAL) {
+
+            // Citizen path?
+            if (matchesKeywords(transcript, CITIZEN_KEYWORDS)) {
+                log('→ Citizen path');
+                convStateRef.current = CONV_STATES.CITIZEN_AUTH;
+                setScreen('citizen-auth');
+                const r = getResponse('citizen_chosen', L);
+                setLastReply(r);
+                await ttsSpeak(r, L);
+                if (isActiveRef.current) setStatus('listening');
+                processingRef.current = false;
+                return;
+            }
+
+            // Guest path?
+            if (matchesKeywords(transcript, GUEST_KEYWORDS)) {
+                log('→ Guest path');
+                convStateRef.current = CONV_STATES.GUEST_HOME;
+                setScreen('guest');
+                navigate('/');
+                const r = getResponse('guest_chosen', L);
+                setLastReply(r);
+                await ttsSpeak(r, L);
+                if (isActiveRef.current) setStatus('listening');
+                processingRef.current = false;
+                return;
+            }
+
+            // Bill directly mentioned? → Guest path + navigate
+            const billType = detectBillType(transcript);
+            if (billType) {
+                log(`→ Direct bill: ${billType}`);
+                convStateRef.current = CONV_STATES.BILL_PAGE;
+                setScreen('guest');
+                navigate(`/bill/${billType}`);
+                // Guidance spoken by route-change detector
+                processingRef.current = false;
+                return;
+            }
+
+            // Complaint mentioned?
+            if (matchesKeywords(transcript, COMPLAINT_KEYWORDS)) {
+                log('→ Direct complaint');
+                convStateRef.current = CONV_STATES.COMPLAINT;
+                setScreen('guest');
+                navigate('/complaint');
+                processingRef.current = false;
+                return;
+            }
+        }
+
+        // ── GUEST_HOME / BILL_PAGE / any: nav by bill type ──
+        const billType = detectBillType(transcript);
+        if (billType) {
+            log(`→ Bill: ${billType}`);
+            convStateRef.current = CONV_STATES.BILL_PAGE;
+            navigate(`/bill/${billType}`);
+            processingRef.current = false;
+            return;
+        }
+
+        if (matchesKeywords(transcript, COMPLAINT_KEYWORDS)) {
+            log('→ Complaint');
+            convStateRef.current = CONV_STATES.COMPLAINT;
+            navigate('/complaint');
+            processingRef.current = false;
+            return;
+        }
+
+        // ── FALLBACK: Try Gemini ──
+        if (hasApiKeys()) {
+            try {
+                let fullReply = '';
+                let firstSent = false;
+
+                const result = await streamGeminiResponse(
+                    transcript, L, `${screenRef.current} | ${window.location.pathname}`,
+                    async (sentence, idx) => {
+                        if (bargedInRef.current) return;
+                        fullReply += (idx > 0 ? ' ' : '') + sentence;
+                        setLastReply(fullReply);
+                        if (idx === 0) { isSpeakingRef.current = true; setStatus('speaking'); firstSent = true; }
+                        if (!bargedInRef.current) await queueTTS(sentence, L);
                     }
+                );
 
-                    if (!bargedInRef.current) await queueTTS(sentence, langRef.current);
+                if (!firstSent && result.reply && !bargedInRef.current) {
+                    setLastReply(result.reply);
+                    await ttsSpeak(result.reply, L);
                 }
-            );
 
-            // Fallback if streaming didn't fire
-            if (!firstSent && result.reply && !bargedInRef.current) {
-                setLastReply(result.reply);
-                isSpeakingRef.current = true;
-                await ttsSpeak(result.reply, langRef.current);
+                // Gemini navigation
+                if (result.intent === 'navigate' && result.action_key) {
+                    const routes = { electricity: '/bill/electricity', water: '/bill/water', gas: '/bill/gas', complaint: '/complaint', home: '/' };
+                    if (routes[result.action_key]) navigate(routes[result.action_key]);
+                } else if (result.intent === 'set_screen') {
+                    if (result.action_key === 'quick_pay') { setScreen('guest'); navigate('/'); }
+                    else if (result.action_key === 'citizen_login') setScreen('citizen-auth');
+                } else if (result.intent === 'go_back') navigate(-1);
+
+            } catch (err) {
+                log(`❌ Gemini: ${err.message}`);
+                const r = getResponse('not_understood', L);
+                setLastReply(r);
+                if (!bargedInRef.current) await ttsSpeak(r, L);
             }
-
-            // Gemini navigation
-            if (result.intent === 'navigate' && result.action_key) {
-                const routes = { electricity: '/bill/electricity', water: '/bill/water', gas: '/bill/gas', complaint: '/complaint', home: '/' };
-                geminiNav = routes[result.action_key];
-                if (geminiNav) {
-                    log(`🤖 Gemini nav: ${geminiNav}`);
-                    navigate(geminiNav);
-                }
-            } else if (result.intent === 'set_screen') {
-                if (result.action_key === 'quick_pay') { setScreen('guest'); navigate('/'); }
-                else if (result.action_key === 'citizen_login') setScreen('citizen-auth');
-            } else if (result.intent === 'go_back') navigate(-1);
-
-        } catch (err) {
-            log(`❌ Gemini error: ${err.message}`);
-            if (!bargedInRef.current) {
-                setLastReply('माफ कीजिए, फिर से बोलें');
-                await ttsSpeak(langRef.current === 'hi' ? 'माफ़ कीजिए, कृपया फिर से बोलें।' : 'Sorry, please try again.', langRef.current);
-            }
+        } else {
+            const r = getResponse('not_understood', L);
+            setLastReply(r);
+            await ttsSpeak(r, L);
         }
 
         isSpeakingRef.current = false;
@@ -383,33 +356,25 @@ const VoiceAgent = memo(function VoiceAgent({
         processingRef.current = false;
     }, [navigate, setScreen, log, ttsSpeak, queueTTS]);
 
-    // ═══ ROUTE CHANGE DETECTION (guidance) ═══════════
+    // ═══ ROUTE CHANGE → PAGE GUIDANCE ═══════════════
 
     useEffect(() => {
         if (!isActiveRef.current || !voiceMode) return;
         const currentPath = location.pathname;
 
-        // Only speak guidance when route actually changes
         if (currentPath !== lastRouteRef.current) {
             const prevRoute = lastRouteRef.current;
             lastRouteRef.current = currentPath;
-
-            // Don't speak guidance for the very first route (greeting handles it)
             if (!prevRoute) return;
-
-            // Don't speak if we're currently processing (Gemini response is already speaking)
             if (processingRef.current) return;
 
-            const guidance = SCREEN_GUIDANCE[currentPath];
+            const guidance = getPageGuidance(currentPath, langRef.current);
             if (guidance) {
-                const text = guidance[langRef.current] || guidance.en;
-                log(`📍 Route → ${currentPath}: "${text}"`);
-                setLastReply(text);
-
-                // Wait a moment for the page to render, then speak
+                log(`📍 → ${currentPath}`);
+                setLastReply(guidance);
                 setTimeout(async () => {
                     if (isActiveRef.current && !processingRef.current) {
-                        await ttsSpeak(text, langRef.current);
+                        await ttsSpeak(guidance, langRef.current);
                         if (isActiveRef.current) setStatus('listening');
                     }
                 }, 600);
@@ -429,41 +394,17 @@ const VoiceAgent = memo(function VoiceAgent({
         stopSpeaking();
         restartCountRef.current = 0;
         lastRouteRef.current = window.location.pathname;
-        log('🟢 Voice ACTIVATED');
+        convStateRef.current = CONV_STATES.WAIT_PATH;
+        log('🟢 Activated');
 
-        // Screen-specific greeting
-        const greetings = {
-            gateway: {
-                hi: 'ठीक है! बताइए — बिना लॉगिन के Quick Pay करना है, या Citizen लॉगिन?',
-                en: 'Tell me — Quick Pay without login, or Citizen login?',
-                pa: 'ਦੱਸੋ — ਬਿਨਾਂ ਲੌਗਇਨ Quick Pay, ਜਾਂ Citizen ਲੌਗਇਨ?',
-            },
-            guest: {
-                hi: 'बोलिए, कौन सा बिल भरना है — बिजली, पानी, या गैस?',
-                en: 'Which bill would you like to pay — electricity, water, or gas?',
-                pa: 'ਦੱਸੋ, ਕਿਹੜਾ ਬਿੱਲ ਭਰਨਾ ਹੈ — ਬਿਜਲੀ, ਪਾਣੀ, ਜਾਂ ਗੈਸ?',
-            },
-            'citizen-dashboard': {
-                hi: 'बोलिए, क्या करना है — बिल भरना, शिकायत, या कुछ और?',
-                en: 'What would you like to do — pay a bill, file a complaint, or something else?',
-            },
-            'citizen-auth': {
-                hi: 'लॉगिन के लिए नीचे से तरीका चुनें — अंगूठा, आँख, या OTP।',
-                en: 'Choose a login method below — thumb, iris, or OTP.',
-            },
-        };
-        const g = greetings[screenRef.current] || greetings.gateway;
-        const text = g[langRef.current] || g.en;
-
-        setLastReply(text);
+        // Initial greeting: the Aadhaar question
+        const greeting = getInitialGreeting(langRef.current);
+        setLastReply(greeting);
         setStatus('speaking');
+        await ttsSpeak(greeting, langRef.current);
 
-        // Speak greeting FIRST, then start recognition AFTER
-        await ttsSpeak(text, langRef.current);
-
-        // NOW start listening (after greeting is done)
         if (isActiveRef.current) {
-            log('📢 Greeting done → starting recognition');
+            log('📢 Greeting done → listening');
             setStatus('listening');
             startRecognition();
         }
@@ -478,16 +419,17 @@ const VoiceAgent = memo(function VoiceAgent({
         setInterimText('');
         isSpeakingRef.current = false;
         processingRef.current = false;
+        convStateRef.current = CONV_STATES.INITIAL;
         stopSpeaking();
         clearTimeout(silenceTimerRef.current);
         try { recognitionRef.current?.abort(); } catch { }
-        log('🔴 Voice DEACTIVATED');
+        log('🔴 Deactivated');
     }, [log]);
 
-    // Auto-activate when voiceMode is on and screen changes (first time)
+    // Auto-activate on voice mode + screen change
     useEffect(() => {
         if (voiceMode && !isActiveRef.current && screen !== 'idle') {
-            log('🔄 Auto-activate: voiceMode=true, screen=' + screen);
+            log('🔄 Auto-activate');
             activateVoice();
         }
     }, [voiceMode, screen, activateVoice, log]);
@@ -510,7 +452,7 @@ const VoiceAgent = memo(function VoiceAgent({
         <VoiceContext.Provider value={ctx}>
             {children}
 
-            {/* ═══ VOICE STATUS BAR ═══════════════════════ */}
+            {/* Voice Status Bar */}
             {isActive && (
                 <div className={`vo-bar vo-bar-${status}`}>
                     <div className="vo-bar-left">
@@ -543,12 +485,7 @@ const VoiceAgent = memo(function VoiceAgent({
                     </div>
                     <button className="vo-bar-close"
                         onClick={status === 'speaking'
-                            ? () => {
-                                stopSpeaking();
-                                isSpeakingRef.current = false;
-                                bargedInRef.current = true;
-                                setStatus('listening');
-                            }
+                            ? () => { stopSpeaking(); isSpeakingRef.current = false; bargedInRef.current = true; setStatus('listening'); }
                             : deactivateVoice}>
                         {status === 'speaking' ? '⏭' : '✕'}
                     </button>

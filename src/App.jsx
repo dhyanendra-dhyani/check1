@@ -116,10 +116,41 @@ function AppContent() {
 
           <Suspense fallback={<Loader />}>
             {screen === 'idle' && (
-              <IdleScreen lang={lang} setLang={setLang} onStart={(isVoice) => { setVoiceMode(!!isVoice); setScreen('gateway'); addLog(isVoice ? 'Voice mode' : 'Touch mode'); }} />
+              <IdleScreen lang={lang} setLang={setLang} onStart={(isVoice) => {
+                setVoiceMode(!!isVoice);
+                if (isVoice) {
+                  // Voice mode: skip gateway, VoiceAgent asks Aadhaar question
+                  setScreen('gateway');
+                  addLog('Voice mode — VoiceAgent guides');
+                } else {
+                  setScreen('gateway');
+                  addLog('Touch mode');
+                }
+              }} />
             )}
-            {screen === 'gateway' && (
+            {screen === 'gateway' && !voiceMode && (
               <GatewayScreen lang={lang} setLang={setLang} onSelectPath={handlePath} />
+            )}
+            {screen === 'gateway' && voiceMode && (
+              /* Voice mode: show simple waiting screen while VoiceAgent talks */
+              <div className="fixed inset-0 z-50 flex flex-col items-center justify-center" style={{ background: 'linear-gradient(160deg, #0F172A 0%, #1E293B 50%, #0F172A 100%)' }}>
+                <div className="text-center px-6 fast-fade-in">
+                  <div className="w-20 h-20 mx-auto mb-6 rounded-full bg-indigo-500/20 border-2 border-indigo-500/30 flex items-center justify-center">
+                    <span className="text-4xl">🎙️</span>
+                  </div>
+                  <h2 className="text-2xl font-black text-white mb-2">
+                    {lang === 'hi' ? 'सुन रहा हूँ...' : 'Listening...'}
+                  </h2>
+                  <p className="text-white/40 text-sm max-w-xs mx-auto">
+                    {lang === 'hi' ? 'बताइए — अपना बिल है या किसी और का?' : 'Tell me — your own bill or someone else\'s?'}
+                  </p>
+                  <div className="flex items-center justify-center gap-1 mt-6 h-6">
+                    {[...Array(5)].map((_, i) => (
+                      <div key={i} className="voice-bar-sm" style={{ animationDelay: `${i * 0.12}s`, background: 'rgba(165,180,252,0.7)' }} />
+                    ))}
+                  </div>
+                </div>
+              </div>
             )}
             {screen === 'citizen-auth' && (
               <AuthScreen lang={lang} onAuthenticated={handleAuth} onBack={() => setScreen('gateway')} />
