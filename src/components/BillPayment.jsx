@@ -16,8 +16,6 @@ import { t } from '../utils/i18n';
 import { lookupBill, generateTxnId } from '../utils/mockData';
 import { saveOfflineTransaction } from '../utils/offlineSync';
 import { generatePaymentReceipt, downloadReceipt } from '../utils/pdfGenerator';
-import { speak, extractConsumerId } from '../utils/voiceCommands';
-import VoiceButton from './VoiceButton';
 
 const SERVICE_META = {
     electricity: { icon: '⚡', label: 'Electricity Bill', color: '#FBBF24' },
@@ -64,7 +62,6 @@ export default function BillPayment({ lang, isOnline }) {
         const found = getOrGenerateBill(consumerId.trim(), serviceType);
         setBill(found);
         setStep('bill');
-        speak(`Bill found. Amount due: ${found.amount} rupees.`, lang);
     }, [consumerId, serviceType, lang]);
 
     const handleNumpad = (key) => {
@@ -83,7 +80,6 @@ export default function BillPayment({ lang, isOnline }) {
         const ids = { electricity: 'PSEB-123456', water: 'PHED-789012', gas: 'GPL-345678' };
         const id = ids[serviceType] || 'PSEB-123456';
         setConsumerId(id);
-        speak(`QR: ${id}`, lang);
     };
 
     const processPayment = async (method) => {
@@ -93,7 +89,6 @@ export default function BillPayment({ lang, isOnline }) {
         setTxnId(id);
         setTimeout(async () => {
             setStep('success');
-            speak(`Payment successful! Transaction: ${id}`, lang);
             await saveOfflineTransaction({
                 txnId: id, consumerId, amount: bill.amount, service: serviceType, method, timestamp: new Date().toISOString(), synced: isOnline,
             });
@@ -139,7 +134,7 @@ export default function BillPayment({ lang, isOnline }) {
                     {['input', 'bill', 'pay', 'success'].map((s, i) => (
                         <div key={s} className="flex-1 flex items-center gap-2">
                             <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold ${s === step ? 'gradient-primary text-white' :
-                                    ['input', 'bill', 'pay', 'success'].indexOf(step) > i ? 'bg-green-500/20 text-green-400' : 'bg-white/5 text-white/30'
+                                ['input', 'bill', 'pay', 'success'].indexOf(step) > i ? 'bg-green-500/20 text-green-400' : 'bg-white/5 text-white/30'
                                 }`}>{['input', 'bill', 'pay', 'success'].indexOf(step) > i ? '✓' : i + 1}</div>
                             {i < 3 && <div className={`flex-1 h-px ${['input', 'bill', 'pay', 'success'].indexOf(step) > i ? 'bg-green-500/30' : 'bg-white/10'}`} />}
                         </div>
@@ -157,9 +152,6 @@ export default function BillPayment({ lang, isOnline }) {
                         </div>
                         <div className="flex gap-3">
                             <button onClick={simulateQR} className="flex-1 py-3 px-4 rounded-xl bg-white/5 border border-white/10 text-white/70 text-sm font-semibold hover:bg-white/10 cursor-pointer">📷 Scan QR</button>
-                            <div className="flex-1 flex justify-center">
-                                <VoiceButton lang={lang} size={48} showLabel={false} onResult={handleVoiceId} onError={() => { }} />
-                            </div>
                         </div>
                         <div className="grid grid-cols-3 gap-2 max-w-xs mx-auto">
                             {numpadKeys.map(key => (

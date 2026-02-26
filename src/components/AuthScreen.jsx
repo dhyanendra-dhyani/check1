@@ -7,7 +7,6 @@
 
 import { useState, useEffect } from 'react';
 import { t } from '../utils/i18n';
-import { speak } from '../utils/voiceCommands';
 
 const MOCK_CITIZEN = {
     aadhaar: 'XXXX-XXXX-4829',
@@ -35,7 +34,6 @@ export default function AuthScreen({ lang, onAuthenticated, onBack }) {
                     clearInterval(interval);
                     setIsScanning(false);
                     setAuthenticated(true);
-                    speak(lang === 'hi' ? 'प्रमाणीकरण सफल' : 'Authentication successful', lang);
                     setTimeout(() => onAuthenticated(MOCK_CITIZEN), 1200);
                     return 100;
                 }
@@ -50,23 +48,17 @@ export default function AuthScreen({ lang, onAuthenticated, onBack }) {
         setIsScanning(true);
         setScanProgress(0);
         setError('');
-        speak(mode === 'thumb'
-            ? (lang === 'hi' ? 'कृपया अंगूठा स्कैनर पर रखें' : 'Place your thumb on the scanner')
-            : (lang === 'hi' ? 'कृपया कैमरे की ओर देखें' : 'Please look at the camera'),
-            lang);
     };
 
     const sendOtp = () => {
         setAuthMode('otp');
         setOtpSent(true);
         setError('');
-        speak(lang === 'hi' ? 'ओ.टी.पी. भेजा गया' : 'OTP has been sent to your phone', lang);
     };
 
     const verifyOtp = () => {
         if (otpInput === MOCK_CITIZEN.otp) {
             setAuthenticated(true);
-            speak(lang === 'hi' ? 'ओ.टी.पी. सत्यापित' : 'OTP verified successfully', lang);
             setTimeout(() => onAuthenticated(MOCK_CITIZEN), 1000);
         } else {
             setError(lang === 'hi' ? 'गलत OTP — नीचे सही OTP देखें' : 'Wrong OTP — see correct OTP below');

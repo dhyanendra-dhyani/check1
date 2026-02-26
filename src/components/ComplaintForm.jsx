@@ -11,8 +11,6 @@ import { t } from '../utils/i18n';
 import { complaintCategories, generateComplaintId } from '../utils/mockData';
 import { saveOfflineComplaint } from '../utils/offlineSync';
 import { generateComplaintReceipt, downloadReceipt } from '../utils/pdfGenerator';
-import { speak } from '../utils/voiceCommands';
-import VoiceButton from './VoiceButton';
 
 export default function ComplaintForm({ lang, isOnline }) {
     const navigate = useNavigate();
@@ -34,7 +32,6 @@ export default function ComplaintForm({ lang, isOnline }) {
                 (pos) => {
                     setLocation({ lat: pos.coords.latitude.toFixed(4), lng: pos.coords.longitude.toFixed(4) });
                     setIsLocating(false);
-                    speak('Location detected', lang);
                 },
                 () => {
                     setLocation({ lat: '30.9010', lng: '75.8573' }); // Ludhiana fallback
@@ -51,7 +48,6 @@ export default function ComplaintForm({ lang, isOnline }) {
     const handleVoiceDescription = useCallback((transcript) => {
         setDescription((prev) => prev ? `${prev}. ${transcript}` : transcript);
         setVoiceRecording(transcript);
-        speak('Description recorded.', lang);
 
         if (!category) {
             const lower = transcript.toLowerCase();
@@ -60,7 +56,6 @@ export default function ComplaintForm({ lang, isOnline }) {
             );
             if (match) {
                 setCategory(match);
-                speak(`Detected category: ${match.label}`, lang);
             }
         }
     }, [category, lang]);
@@ -78,7 +73,6 @@ export default function ComplaintForm({ lang, isOnline }) {
         const id = generateComplaintId();
         setTicketId(id);
         setStep('done');
-        speak(`Complaint registered. Ticket ID: ${id}`, lang);
 
         await saveOfflineComplaint({
             ticketId: id, category: category?.label, description, hasPhoto: !!photo, location, timestamp: new Date().toISOString(), synced: isOnline,
@@ -117,9 +111,8 @@ export default function ComplaintForm({ lang, isOnline }) {
                         {/* Voice auto-detect */}
                         <div className="glass-card rounded-2xl p-5 flex flex-col items-center gap-3">
                             <p className="text-white/50 text-sm font-semibold">
-                                {lang === 'hi' ? 'समस्या बताएँ — आवाज़ से श्रेणी चुनें' : 'Describe your issue — auto-detect category'}
+                                {lang === 'hi' ? 'नीचे से श्रेणी चुनें' : 'Select a category below'}
                             </p>
-                            <VoiceButton lang={lang} size={70} showLabel={true} labelText="Speak your problem" onResult={handleVoiceDescription} onError={() => { }} />
                         </div>
 
                         {/* Manual category grid */}
@@ -166,7 +159,6 @@ export default function ComplaintForm({ lang, isOnline }) {
                             />
 
                             <div className="flex gap-2">
-                                <VoiceButton lang={lang} size={44} showLabel={false} onResult={handleVoiceDescription} onError={() => { }} />
                                 <button
                                     onClick={() => photoRef.current?.click()}
                                     className="flex-1 py-2.5 px-4 bg-white/5 border border-white/10 rounded-xl text-white/60 text-sm font-semibold cursor-pointer hover:bg-white/10 flex items-center justify-center gap-2"

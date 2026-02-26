@@ -1,17 +1,21 @@
 /**
- * VoiceContext — Shares voice agent state across all screens.
- * Any component can call `activate()` to start continuous voice conversation.
+ * VoiceContext v7 — Global voice mode state
+ *
+ * voiceMode: boolean — set ONCE at IdleScreen
+ *   true  = entire session is voice-controlled
+ *   false = touch-only, no voice elements shown
  */
 
 import { createContext, useContext } from 'react';
 
 const VoiceContext = createContext({
+    voiceMode: false,
     isActive: false,
-    status: 'idle', // idle | listening | processing | speaking
-    activate: () => { },
-    deactivate: () => { },
+    status: 'idle',
     lastTranscript: '',
     lastReply: '',
+    activate: () => { },
+    deactivate: () => { },
 });
 
 export const useVoice = () => useContext(VoiceContext);

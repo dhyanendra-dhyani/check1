@@ -36,6 +36,7 @@ function AppContent() {
   const [lang, setLang] = useState('en');
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [citizen, setCitizen] = useState(null);
+  const [voiceMode, setVoiceMode] = useState(false);
   const [showDevPanel, setShowDevPanel] = useState(false);
   const [devLogs, setDevLogs] = useState([]);
   const [showSOS, setShowSOS] = useState(false);
@@ -96,6 +97,7 @@ function AppContent() {
         setLang={setLang}
         screen={screen}
         setScreen={setScreen}
+        voiceMode={voiceMode}
         navigate={navigate}
         setCitizen={setCitizen}
         addLog={addLog}
@@ -114,7 +116,7 @@ function AppContent() {
 
           <Suspense fallback={<Loader />}>
             {screen === 'idle' && (
-              <IdleScreen onStart={() => { setScreen('gateway'); addLog('Woke'); }} />
+              <IdleScreen onStart={(isVoice) => { setVoiceMode(!!isVoice); setScreen('gateway'); addLog(isVoice ? 'Voice mode' : 'Touch mode'); }} />
             )}
             {screen === 'gateway' && (
               <GatewayScreen lang={lang} setLang={setLang} onSelectPath={handlePath} />

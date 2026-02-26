@@ -8,9 +8,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { t } from '../utils/i18n';
-import { speak } from '../utils/voiceCommands';
-import VoiceButton from './VoiceButton';
-import { processVoiceCommand } from '../utils/voiceCommands';
 
 const myBills = [
     { service: 'Electricity', icon: '⚡', id: 'PSEB-123456', amount: 1200, due: '2026-02-28', status: 'due', route: '/bill/electricity' },
@@ -43,11 +40,6 @@ export default function CitizenDashboard({ lang, citizen, onLogout, isOnline }) 
     const navigate = useNavigate();
     const [activeTab, setActiveTab] = useState('bills');
 
-    const handleVoice = (transcript) => {
-        const result = processVoiceCommand(transcript);
-        if (result.type === 'navigate') navigate(result.value);
-    };
-
     const initials = citizen?.name?.split(' ').map(w => w[0]).join('') || 'VK';
 
     return (
@@ -68,7 +60,6 @@ export default function CitizenDashboard({ lang, citizen, onLogout, isOnline }) 
                 </div>
 
                 <div className="flex items-center gap-3">
-                    <VoiceButton lang={lang} size={50} showLabel={false} onResult={handleVoice} onError={() => { }} />
                     <button
                         onClick={onLogout}
                         className="px-4 py-2.5 bg-red-500/15 text-red-400 rounded-xl font-bold hover:bg-red-500/25 transition cursor-pointer border border-red-500/20 text-sm"
