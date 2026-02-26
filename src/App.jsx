@@ -21,7 +21,7 @@ const BillPayment = lazy(() => import('./components/BillPayment'));
 const ComplaintForm = lazy(() => import('./components/ComplaintForm'));
 const AdminDashboard = lazy(() => import('./components/AdminDashboard'));
 const OfflineIndicator = lazy(() => import('./components/OfflineIndicator'));
-const VoiceAgent = lazy(() => import('./components/VoiceAgent'));
+import VoiceAgent from './components/VoiceAgent'; // Direct import — must be ready immediately
 
 function Loader() {
   return (

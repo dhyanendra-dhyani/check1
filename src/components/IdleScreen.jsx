@@ -1,12 +1,9 @@
 /**
  * ═══════════════════════════════════════════════════════════
- * IdleScreen v7 — Voice/Touch Choice
+ * IdleScreen v8 — Fixed Voice Choice
  *
- * On load: plays "Swagat hai! Bolne mein comfortable hain ya
- * touch se kaam karenge?" via TTS + shows two buttons.
- *
- * Voice choice: user says "bolne" → voiceMode = true
- * Touch choice: user taps → voiceMode = false
+ * KEY FIX: If user speaks ANYTHING during choice, they chose
+ * voice mode! (They're already talking = they want voice.)
  * ═══════════════════════════════════════════════════════════
  */
 
@@ -22,8 +19,10 @@ const GOV_ADS = [
 export default function IdleScreen({ onStart }) {
     const [currentSlide, setCurrentSlide] = useState(0);
     const [choosing, setChoosing] = useState(false);
-    const [isWaking, setIsWaking] = useState(false);
     const [videoLoaded, setVideoLoaded] = useState(false);
+    const [listenStatus, setListenStatus] = useState(''); // '', 'listening', 'heard'
+
+    const isWakingRef = useRef(false);
     const recognitionRef = useRef(null);
     const hasGreetedRef = useRef(false);
 
@@ -36,77 +35,120 @@ export default function IdleScreen({ onStart }) {
         return () => clearInterval(timer);
     }, []);
 
-    // Greet on first tap
     const handleScreenTap = useCallback(() => {
-        if (isWaking) return;
+        if (isWakingRef.current) return;
         if (!choosing) {
             setChoosing(true);
             greetAndListen();
         }
-    }, [choosing, isWaking]);
+    }, [choosing]);
 
     const greetAndListen = useCallback(() => {
         if (hasGreetedRef.current) return;
         hasGreetedRef.current = true;
+        console.log('[IdleScreen] Greeting + starting choice listener');
 
         // Play greeting TTS
-        const greeting = 'स्वागत है! आप बोलकर काम करना चाहेंगे, या टच से?';
         try {
             window.speechSynthesis?.cancel();
-            const u = new SpeechSynthesisUtterance(greeting);
+            const u = new SpeechSynthesisUtterance('स्वागत है! आप बोलकर काम करना चाहेंगे, या टच से?');
             u.lang = 'hi-IN';
             u.rate = 1;
             const voices = window.speechSynthesis?.getVoices() || [];
             const hindi = voices.find(v => v.lang === 'hi-IN');
             if (hindi) u.voice = hindi;
-            window.speechSynthesis.speak(u);
-        } catch { }
 
-        // Start listening for "bolne" or similar
-        startChoiceListening();
+            u.onend = () => {
+                // Start listening AFTER greeting
+                console.log('[IdleScreen] Greeting done, starting listener');
+                startChoiceListening();
+            };
+            u.onerror = () => startChoiceListening();
+
+            window.speechSynthesis.speak(u);
+        } catch {
+            // TTS failed, just start listening
+            startChoiceListening();
+        }
     }, []);
 
     const startChoiceListening = useCallback(() => {
+        if (isWakingRef.current) return;
+
         const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-        if (!SR) return;
+        if (!SR) {
+            console.log('[IdleScreen] ❌ SpeechRecognition not supported');
+            return;
+        }
 
         try { recognitionRef.current?.abort(); } catch { }
 
         const r = new SR();
         r.lang = 'hi-IN';
         r.continuous = false;
-        r.interimResults = false;
+        r.interimResults = true; // Show interim for feedback
+
+        r.onstart = () => {
+            console.log('[IdleScreen] 🎧 Choice listener STARTED');
+            setListenStatus('listening');
+        };
 
         r.onresult = (e) => {
-            const text = e.results[0][0].transcript.toLowerCase();
-            const voiceWords = ['bolne', 'bolna', 'bolo', 'voice', 'bol', 'बोलने', 'बोलना',
-                'haan', 'yes', 'ha', 'हाँ', 'आवाज', 'awaz', 'speak', 'sun'];
-            if (voiceWords.some(w => text.includes(w))) {
-                chooseVoice();
-            } else {
-                // Restart listening — maybe they said something else
-                startChoiceListening();
+            const text = e.results[0][0].transcript;
+            console.log(`[IdleScreen] 💬 Heard: "${text}"`);
+            setListenStatus('heard');
+
+            // KEY FIX: If user speaks ANYTHING, they chose voice!
+            // They're already talking = they want voice mode.
+            // Only check for explicit "touch" keywords to reject voice.
+            const lower = text.toLowerCase();
+            const touchWords = ['touch', 'छूकर', 'chhukar', 'chukar', 'button', 'screen'];
+            const isTouchChoice = touchWords.some(w => lower.includes(w));
+
+            if (e.results[0].isFinal) {
+                if (isTouchChoice) {
+                    console.log('[IdleScreen] → Touch mode chosen');
+                    chooseTouch();
+                } else {
+                    // ANY other speech = voice mode!
+                    console.log('[IdleScreen] → Voice mode chosen (user spoke!)');
+                    chooseVoice();
+                }
             }
         };
 
         r.onend = () => {
-            // If still choosing, keep listening
-            if (!isWaking) setTimeout(() => startChoiceListening(), 500);
+            console.log('[IdleScreen] 🔄 Choice listener ended');
+            // Restart if still choosing
+            if (!isWakingRef.current) {
+                setListenStatus('');
+                setTimeout(() => startChoiceListening(), 500);
+            }
         };
-        r.onerror = () => {
-            if (!isWaking) setTimeout(() => startChoiceListening(), 1500);
+
+        r.onerror = (e) => {
+            console.log(`[IdleScreen] ⚠️ Choice listener error: ${e.error}`);
+            if (!isWakingRef.current && e.error !== 'aborted') {
+                setListenStatus('');
+                setTimeout(() => startChoiceListening(), 1500);
+            }
         };
 
         recognitionRef.current = r;
-        try { r.start(); } catch { }
-    }, [isWaking]);
+        try {
+            r.start();
+        } catch (err) {
+            console.log(`[IdleScreen] ❌ start() failed: ${err.message}`);
+            setTimeout(() => startChoiceListening(), 1000);
+        }
+    }, []);
 
     const chooseVoice = useCallback(() => {
-        setIsWaking(true);
+        if (isWakingRef.current) return;
+        isWakingRef.current = true;
         window.speechSynthesis?.cancel();
         try { recognitionRef.current?.abort(); } catch { }
 
-        // Quick confirmation
         try {
             const u = new SpeechSynthesisUtterance('बहुत अच्छा! चलिए शुरू करते हैं।');
             u.lang = 'hi-IN';
@@ -114,14 +156,15 @@ export default function IdleScreen({ onStart }) {
             window.speechSynthesis.speak(u);
         } catch { }
 
-        setTimeout(() => onStart?.(true), 800); // true = voiceMode
+        setTimeout(() => onStart?.(true), 800);
     }, [onStart]);
 
     const chooseTouch = useCallback(() => {
-        setIsWaking(true);
+        if (isWakingRef.current) return;
+        isWakingRef.current = true;
         window.speechSynthesis?.cancel();
         try { recognitionRef.current?.abort(); } catch { }
-        setTimeout(() => onStart?.(false), 300); // false = touchMode
+        setTimeout(() => onStart?.(false), 300);
     }, [onStart]);
 
     // Cleanup
@@ -136,8 +179,8 @@ export default function IdleScreen({ onStart }) {
 
     return (
         <div
-            className={`fixed inset-0 z-50 flex flex-col items-center justify-center overflow-hidden transition-opacity duration-500 ${isWaking ? 'opacity-0' : 'opacity-100'}`}
-            style={{ background: ad.gradient, transition: 'background 1.5s ease', pointerEvents: isWaking ? 'none' : 'auto' }}
+            className={`fixed inset-0 z-50 flex flex-col items-center justify-center overflow-hidden transition-opacity duration-500 ${isWakingRef.current ? 'opacity-0' : 'opacity-100'}`}
+            style={{ background: ad.gradient, transition: 'background 1.5s ease' }}
             onClick={handleScreenTap}
             role="button"
             aria-label="Touch to start"
@@ -149,15 +192,10 @@ export default function IdleScreen({ onStart }) {
                     className="absolute inset-0 w-full h-full object-cover transition-opacity duration-1000"
                     style={{ opacity: videoLoaded ? 0.3 : 0 }} />
             )}
-
-            {/* Gradient overlay */}
             <div className="absolute inset-0 pointer-events-none"
                 style={{ background: `${ad.gradient}, linear-gradient(to top, rgba(0,0,0,0.7) 0%, transparent 50%)`, opacity: 0.85 }} />
-
-            {/* Decorative circles */}
             <div className="absolute inset-0 overflow-hidden pointer-events-none">
                 <div className="absolute -top-32 -right-32 w-96 h-96 rounded-full opacity-10" style={{ background: 'white' }} />
-                <div className="absolute -bottom-48 -left-24 w-[500px] h-[500px] rounded-full opacity-5" style={{ background: 'white' }} />
             </div>
 
             {/* Top Bar */}
@@ -171,37 +209,14 @@ export default function IdleScreen({ onStart }) {
                         <p className="text-white/50 text-xs font-medium">Smart Civic Kiosk</p>
                     </div>
                 </div>
-                <div className="flex items-center gap-3">
-                    <span className="proto-badge">🔧 Prototype</span>
-                    <div className="text-white/60 text-sm font-mono">
-                        {new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
-                    </div>
-                </div>
-            </div>
-
-            {/* Government Ad Label */}
-            <div className="absolute top-20 left-0 right-0 z-10 flex justify-center">
-                <div className="flex items-center gap-2 bg-white/10 rounded-full px-4 py-1.5">
-                    <span className="text-xs">🇮🇳</span>
-                    <p className="text-white/60 text-xs font-semibold">{ad.source}</p>
-                    <span className="text-white/30 text-xs">• Gov. Advertisement</span>
-                </div>
+                <span className="proto-badge">🔧 Prototype</span>
             </div>
 
             {/* Center Content */}
             <div className="relative z-10 flex flex-col items-center text-center px-8 max-w-2xl">
-                {/* Ad content */}
-                {!choosing && (
-                    <div key={currentSlide} className="mb-12 fast-fade-in">
-                        <h2 className="text-5xl md:text-6xl font-black text-white mb-4 leading-tight drop-shadow-lg">{ad.title}</h2>
-                        <p className="text-xl text-white/70 font-medium drop-shadow">{ad.subtitle}</p>
-                    </div>
-                )}
-
                 {/* ── CHOICE MODE ──────────────────────── */}
                 {choosing ? (
                     <div className="fast-fade-in flex flex-col items-center gap-6" onClick={(e) => e.stopPropagation()}>
-                        {/* Greeting text */}
                         <div className="mb-2">
                             <h2 className="text-3xl md:text-4xl font-black text-white mb-3 leading-tight">
                                 स्वागत है! 🙏
@@ -213,12 +228,9 @@ export default function IdleScreen({ onStart }) {
 
                         {/* Two big choice buttons */}
                         <div className="flex gap-5">
-                            {/* Voice choice */}
-                            <button
-                                onClick={chooseVoice}
+                            <button onClick={chooseVoice}
                                 className="w-44 h-44 rounded-3xl flex flex-col items-center justify-center gap-3 cursor-pointer border-2 border-indigo-500/40 hover:border-indigo-400 hover:scale-105 active:scale-95 transition-all"
-                                style={{ background: 'linear-gradient(160deg, rgba(99,102,241,0.25), rgba(99,102,241,0.1))' }}
-                            >
+                                style={{ background: 'linear-gradient(160deg, rgba(99,102,241,0.25), rgba(99,102,241,0.1))' }}>
                                 <span className="text-5xl">🎙️</span>
                                 <div>
                                     <p className="text-white font-bold text-lg">बोलकर</p>
@@ -231,12 +243,9 @@ export default function IdleScreen({ onStart }) {
                                 </div>
                             </button>
 
-                            {/* Touch choice */}
-                            <button
-                                onClick={chooseTouch}
+                            <button onClick={chooseTouch}
                                 className="w-44 h-44 rounded-3xl flex flex-col items-center justify-center gap-3 cursor-pointer border-2 border-emerald-500/40 hover:border-emerald-400 hover:scale-105 active:scale-95 transition-all"
-                                style={{ background: 'linear-gradient(160deg, rgba(16,185,129,0.25), rgba(16,185,129,0.1))' }}
-                            >
+                                style={{ background: 'linear-gradient(160deg, rgba(16,185,129,0.25), rgba(16,185,129,0.1))' }}>
                                 <span className="text-5xl">👆</span>
                                 <div>
                                     <p className="text-white font-bold text-lg">छूकर</p>
@@ -245,30 +254,38 @@ export default function IdleScreen({ onStart }) {
                             </button>
                         </div>
 
-                        <p className="text-white/40 text-sm mt-2">
-                            बोलें <span className="text-white font-bold">"बोलकर"</span> या नीचे टच करें
-                        </p>
+                        {/* Listening indicator */}
+                        <div className={`flex items-center gap-2 px-4 py-2 rounded-full transition-all ${listenStatus === 'listening' ? 'bg-indigo-500/20 border border-indigo-500/30' : listenStatus === 'heard' ? 'bg-green-500/20 border border-green-500/30' : 'bg-white/10 border border-white/10'}`}>
+                            {listenStatus === 'listening' && (
+                                <>
+                                    <div className="w-2.5 h-2.5 rounded-full bg-indigo-400 animate-pulse" />
+                                    <span className="text-indigo-300 text-sm font-medium">🎧 सुन रहा हूँ... कुछ भी बोलें</span>
+                                </>
+                            )}
+                            {listenStatus === 'heard' && (
+                                <>
+                                    <div className="w-2.5 h-2.5 rounded-full bg-green-400" />
+                                    <span className="text-green-300 text-sm font-medium">✓ सुन लिया!</span>
+                                </>
+                            )}
+                            {!listenStatus && (
+                                <span className="text-white/40 text-sm">कुछ भी बोलें = Voice mode ✨</span>
+                            )}
+                        </div>
                     </div>
                 ) : (
                     <>
-                        {/* Touch to start (before choosing) */}
+                        <div key={currentSlide} className="mb-12 fast-fade-in">
+                            <h2 className="text-5xl md:text-6xl font-black text-white mb-4 leading-tight drop-shadow-lg">{ad.title}</h2>
+                            <p className="text-xl text-white/70 font-medium drop-shadow">{ad.subtitle}</p>
+                        </div>
+
                         <div className="idle-pulse rounded-full">
                             <button className="w-44 h-44 rounded-full bg-white/15 border-2 border-white/30 flex flex-col items-center justify-center shadow-2xl hover:scale-105 active:scale-95 transition-transform cursor-pointer">
                                 <span className="text-5xl mb-2">👆</span>
                                 <p className="text-white font-bold text-sm leading-tight">Touch to Start</p>
                                 <p className="text-white/60 font-medium text-xs">शुरू करें</p>
                             </button>
-                        </div>
-
-                        <div className="mt-8 flex items-center gap-3 bg-white/10 rounded-full px-5 py-2.5">
-                            <div className="flex items-center gap-0.5 h-5">
-                                {[...Array(5)].map((_, i) => (
-                                    <div key={i} className="voice-bar-sm" style={{ animationDelay: `${i * 0.12}s`, background: 'rgba(255,255,255,0.5)' }} />
-                                ))}
-                            </div>
-                            <p className="text-white/70 text-sm font-medium">
-                                Or say <span className="text-white font-bold">"Hello"</span> / <span className="text-white font-bold">"Namaste"</span>
-                            </p>
                         </div>
                     </>
                 )}
@@ -280,8 +297,7 @@ export default function IdleScreen({ onStart }) {
                     {GOV_ADS.map((_, i) => (
                         <button key={i} onClick={(e) => { e.stopPropagation(); setCurrentSlide(i); setVideoLoaded(false); }}
                             className="h-1.5 rounded-full transition-all duration-500 cursor-pointer border-0 p-0"
-                            style={{ width: i === currentSlide ? '32px' : '8px', background: i === currentSlide ? 'white' : 'rgba(255,255,255,0.3)' }}
-                            aria-label={`Slide ${i + 1}`} />
+                            style={{ width: i === currentSlide ? '32px' : '8px', background: i === currentSlide ? 'white' : 'rgba(255,255,255,0.3)' }} />
                     ))}
                 </div>
                 <div className="flex h-1 rounded-full overflow-hidden max-w-xl mx-auto">
@@ -289,9 +305,7 @@ export default function IdleScreen({ onStart }) {
                     <div className="flex-1" style={{ background: '#FFFFFF' }} />
                     <div className="flex-1" style={{ background: '#138808' }} />
                 </div>
-                <p className="text-center text-white/30 text-xs mt-3 font-medium">
-                    C-DAC SUVIDHA 2026 — Empowering Citizens Through Technology
-                </p>
+                <p className="text-center text-white/30 text-xs mt-3 font-medium">C-DAC SUVIDHA 2026</p>
             </div>
         </div>
     );

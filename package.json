@@ -10,10 +10,8 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@ricky0123/vad-web": "^0.0.30",
     "jspdf": "^4.1.0",
     "localforage": "^1.10.0",
-    "onnxruntime-web": "^1.24.2",
     "qrcode.react": "^4.2.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
