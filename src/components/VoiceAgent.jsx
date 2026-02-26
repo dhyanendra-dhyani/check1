@@ -1,91 +1,62 @@
 /**
  * ═══════════════════════════════════════════════════════════
- * VoiceAgent v5 — Intelligent Barge-In Voice Controller
+ * VoiceAgent v6 — Full Pipeline: VAD + Streaming + Barge-in
  *
- * SINGLE voice source for the entire app. All other voice
- * inputs removed. This is the ONLY listening mechanism.
+ * 4 KEY UPGRADES:
+ *   1. VAD (@ricky0123/vad-web) — instant end-of-speech detection
+ *   2. Barge-in — user interrupts agent → agent stops immediately
+ *   3. Gemini Streaming — TTS starts on first sentence
+ *   4. Parallel pipeline — STT, LLM, TTS all overlap
  *
- * Architecture:
- *   • Web Speech API with continuous=true for barge-in
- *   • Recognition runs EVEN while TTS plays → user can interrupt
- *   • When user speaks during TTS → TTS cancelled → listen
- *   • Gemini 2.5 Flash for ALL intelligent responses
- *   • Fast keyword shortcuts for instant navigation (0ms)
- *   • Conversation history for multi-turn context
- *   • Auto-restart after every exchange (never stops)
- *
- * Like talking to a real person:
- *   Agent speaks → user interrupts → agent stops & listens
- *   User pauses → agent responds → keeps listening
+ * Flow:
+ *   [MIC] → VAD detects speech → Web Speech API transcribes
+ *   → VAD detects silence → INSTANTLY send to Gemini (streaming)
+ *   → First sentence arrives → START TTS immediately
+ *   → More sentences arrive → QUEUE TTS
+ *   → User speaks during TTS → BARGE-IN → cancel TTS, listen
+ *   → Repeat forever until stopped
  * ═══════════════════════════════════════════════════════════
  */
 
 import { useState, useCallback, useRef, useEffect, memo } from 'react';
 import VoiceContext from './VoiceContext';
-import { sendTextToGemini, stopSpeaking } from '../utils/geminiVoiceAgent';
+import { streamGeminiResponse, stopSpeaking, speakText } from '../utils/geminiVoiceAgent';
 
-// ── Speech lang codes ────────────────────────────────
+// ── Speech codes ─────────────────────────────────────
 const SPEECH_LANGS = {
     en: 'en-IN', hi: 'hi-IN', pa: 'pa-IN', bn: 'bn-IN',
     ta: 'ta-IN', te: 'te-IN', kn: 'kn-IN', mr: 'mr-IN',
 };
 
-// ── TTS lang codes ───────────────────────────────────
 const TTS_LANGS = {
     en: 'en-IN', hi: 'hi-IN', pa: 'pa-IN', bn: 'bn-IN',
     ta: 'ta-IN', te: 'te-IN', kn: 'kn-IN', mr: 'mr-IN',
 };
 
-// ── Quick nav keywords (instant, no API call) ────────
+// ── Quick nav keywords (instant, 0ms) ────────────────
 const NAV_KEYWORDS = {
-    electricity: { words: ['bijli', 'electricity', 'electric', 'बिजली', 'ਬਿਜਲੀ', 'light'], route: '/bill/electricity' },
+    electricity: { words: ['bijli', 'electricity', 'electric', 'बिजली', 'ਬਿਜਲੀ', 'light', 'bijlee'], route: '/bill/electricity' },
     water: { words: ['paani', 'water', 'jal', 'पानी', 'ਪਾਣੀ', 'pani'], route: '/bill/water' },
-    gas: { words: ['gas', 'गैस', 'ਗੈਸ', 'lpg'], route: '/bill/gas' },
-    property: { words: ['property', 'tax', 'ghar', 'प्रॉपर्टी', 'ਜਾਇਦਾਦ'], route: '/bill/electricity' },
-    complaint: { words: ['complaint', 'shikayat', 'शिकायत', 'ਸ਼ਿਕਾਇਤ', 'problem'], route: '/complaint' },
-    home: { words: ['home', 'ghar', 'shuru', 'होम', 'ਹੋਮ', 'main page'], route: '/' },
+    gas: { words: ['gas', 'गैस', 'ਗੈਸ', 'lpg', 'cylinder'], route: '/bill/gas' },
+    property: { words: ['property', 'tax', 'प्रॉपर्टी', 'ਜਾਇਦਾਦ', 'sampatti'], route: '/bill/electricity' },
+    complaint: { words: ['complaint', 'shikayat', 'शिकायत', 'ਸ਼ਿਕਾਇਤ', 'problem', 'samasya'], route: '/complaint' },
+    home: { words: ['home', 'ghar', 'shuru', 'होम', 'ਹੋਮ', 'main'], route: '/' },
     back: { words: ['back', 'peeche', 'wapas', 'पीछे', 'ਪਿੱਛੇ'], route: '__BACK__' },
 };
 
 function detectQuickNav(text) {
     const lower = text.toLowerCase();
-    for (const [key, { words, route }] of Object.entries(NAV_KEYWORDS)) {
-        if (words.some(w => lower.includes(w))) return { key, route };
-    }
+    for (const [, { words, route }] of Object.entries(NAV_KEYWORDS))
+        if (words.some(w => lower.includes(w))) return route;
     return null;
 }
 
 function isStopCommand(text) {
-    const stops = ['stop', 'band', 'ruko', 'bas', 'बंद', 'रुको', 'ਬੰਦ', 'ਰੁਕੋ', 'chup'];
-    return stops.some(s => text.toLowerCase().includes(s));
-}
-
-// ── Barge-in TTS with interrupt detection ────────────
-function smartSpeak(text, lang = 'en') {
-    return new Promise((resolve) => {
-        if (!window.speechSynthesis || !text) { resolve(); return; }
-        window.speechSynthesis.cancel();
-
-        const u = new SpeechSynthesisUtterance(text);
-        u.lang = TTS_LANGS[lang] || 'en-IN';
-        u.rate = 1.05; // Slightly faster for naturalness
-        u.pitch = 1;
-        u.volume = 1;
-
-        const voices = window.speechSynthesis.getVoices();
-        const v = voices.find(v => v.lang === u.lang) || voices.find(v => v.lang.startsWith(lang));
-        if (v) u.voice = v;
-
-        u.onend = () => resolve();
-        u.onerror = () => resolve();
-        window.speechSynthesis.speak(u);
-    });
+    return ['stop', 'band', 'ruko', 'bas', 'बंद', 'रुको', 'ਬੰਦ', 'chup', 'bye']
+        .some(s => text.toLowerCase().includes(s));
 }
 
 // ═════════════════════════════════════════════════════
-// ═══ MAIN COMPONENT ═════════════════════════════════
-// ═════════════════════════════════════════════════════
-
 const VoiceAgent = memo(function VoiceAgent({
     lang, setLang, screen, setScreen,
     navigate, setCitizen, addLog, children,
@@ -96,77 +67,130 @@ const VoiceAgent = memo(function VoiceAgent({
     const [lastReply, setLastReply] = useState('');
     const [interimText, setInterimText] = useState('');
 
-    // Refs for real-time state access in callbacks
     const isActiveRef = useRef(false);
     const isSpeakingRef = useRef(false);
     const recognitionRef = useRef(null);
     const langRef = useRef(lang);
     const screenRef = useRef(screen);
     const processingRef = useRef(false);
+    const vadRef = useRef(null);
     const silenceTimerRef = useRef(null);
+    const lastInterimRef = useRef('');
+    const bargedInRef = useRef(false);
 
     useEffect(() => { langRef.current = lang; }, [lang]);
     useEffect(() => { screenRef.current = screen; }, [screen]);
 
-    // ── CORE: Start continuous recognition ─────────
+    // ── Initialize VAD ──────────────────────────────
+    const initVAD = useCallback(async () => {
+        try {
+            const vadModule = await import('@ricky0123/vad-web');
+            const vad = await vadModule.MicVAD.new({
+                positiveSpeechThreshold: 0.8,
+                negativeSpeechThreshold: 0.3,
+                minSpeechFrames: 3,
+                preSpeechPadFrames: 3,
+                redemptionFrames: 8, // ~480ms silence = speech ended
+
+                onSpeechStart: () => {
+                    // ── BARGE-IN: User started speaking ──
+                    if (isSpeakingRef.current) {
+                        window.speechSynthesis.cancel();
+                        isSpeakingRef.current = false;
+                        bargedInRef.current = true;
+                        setStatus('listening');
+                        addLog?.('🔇 Barge-in!');
+                    }
+                    // Clear the silence timer
+                    clearTimeout(silenceTimerRef.current);
+                },
+
+                onSpeechEnd: () => {
+                    // ── User stopped speaking → process IMMEDIATELY ──
+                    if (!isActiveRef.current || processingRef.current) return;
+
+                    // Give Web Speech API a moment to finalize, then force-process
+                    silenceTimerRef.current = setTimeout(() => {
+                        const transcript = lastInterimRef.current?.trim();
+                        if (transcript && transcript.length > 1 && !processingRef.current) {
+                            addLog?.('🔕 VAD: speech ended');
+                            handleFinalTranscript(transcript);
+                        }
+                    }, 300); // 300ms after VAD detects silence — much faster than default
+                },
+            });
+
+            vadRef.current = vad;
+            return vad;
+        } catch (err) {
+            console.warn('VAD init failed, using fallback:', err);
+            addLog?.('⚠️ VAD unavailable, using timer fallback');
+            return null;
+        }
+    }, [addLog]);
+
+    // ── Start recognition (Web Speech API for transcription) ──
     const startRecognition = useCallback(() => {
         const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-        if (!SR) { addLog?.('Voice: not supported'); return; }
+        if (!SR) return;
 
-        // Kill existing
         try { recognitionRef.current?.abort(); } catch { }
 
         const r = new SR();
         r.lang = SPEECH_LANGS[langRef.current] || 'hi-IN';
-        r.continuous = true;       // NEVER stops — key for barge-in
-        r.interimResults = true;   // Real-time transcription
+        r.continuous = true;
+        r.interimResults = true;
         r.maxAlternatives = 1;
 
         r.onresult = (e) => {
             const lastResult = e.results[e.results.length - 1];
 
-            // ── BARGE-IN: User spoke while agent is speaking ──
+            // BARGE-IN via speech recognition too
             if (isSpeakingRef.current) {
-                // User is interrupting — stop TTS immediately
                 window.speechSynthesis.cancel();
                 isSpeakingRef.current = false;
+                bargedInRef.current = true;
                 setStatus('listening');
-                addLog?.('🔇 Barge-in: user interrupted');
             }
 
             if (lastResult.isFinal) {
-                const transcript = lastResult[0].transcript.trim();
-                if (transcript.length > 1) {
-                    setInterimText('');
+                const t = lastResult[0].transcript.trim();
+                lastInterimRef.current = t;
+                setInterimText('');
+                if (t.length > 1 && !processingRef.current) {
                     clearTimeout(silenceTimerRef.current);
-                    handleFinalTranscript(transcript);
+                    handleFinalTranscript(t);
                 }
             } else {
-                // Show interim text for responsiveness
-                setInterimText(lastResult[0].transcript);
-                setStatus('listening');
+                const interim = lastResult[0].transcript;
+                lastInterimRef.current = interim;
+                setInterimText(interim);
+                if (!isSpeakingRef.current) setStatus('listening');
 
-                // Debounce: wait 1.5s of silence after last interim before considering done
-                clearTimeout(silenceTimerRef.current);
+                // Fallback silence timer (in case VAD isn't available)
+                if (!vadRef.current) {
+                    clearTimeout(silenceTimerRef.current);
+                    silenceTimerRef.current = setTimeout(() => {
+                        const t = lastInterimRef.current?.trim();
+                        if (t && t.length > 1 && !processingRef.current) {
+                            handleFinalTranscript(t);
+                        }
+                    }, 1200);
+                }
             }
         };
 
         r.onerror = (e) => {
-            if (e.error === 'no-speech' || e.error === 'aborted') {
-                // Normal — restart silently
+            if (['no-speech', 'aborted'].includes(e.error)) {
                 if (isActiveRef.current) setTimeout(() => startRecognition(), 300);
                 return;
             }
             addLog?.(`Voice error: ${e.error}`);
-            // Try restart
             if (isActiveRef.current) setTimeout(() => startRecognition(), 1000);
         };
 
         r.onend = () => {
-            // Chrome kills continuous recognition sometimes — restart
-            if (isActiveRef.current) {
-                setTimeout(() => startRecognition(), 200);
-            }
+            if (isActiveRef.current) setTimeout(() => startRecognition(), 200);
         };
 
         recognitionRef.current = r;
@@ -174,111 +198,149 @@ const VoiceAgent = memo(function VoiceAgent({
         if (!isSpeakingRef.current) setStatus('listening');
     }, [addLog]);
 
-    // ── Process final transcript ──────────────────
+    // ── Process transcript: PARALLEL pipeline ──────────
     const handleFinalTranscript = useCallback(async (transcript) => {
         if (processingRef.current) return;
         processingRef.current = true;
+        bargedInRef.current = false;
 
         setLastTranscript(transcript);
+        setInterimText('');
+        lastInterimRef.current = '';
         setStatus('processing');
         addLog?.(`🎤 "${transcript}"`);
 
-        // Check stop command
+        // Stop command?
         if (isStopCommand(transcript)) {
-            await respondAndListen(
-                langRef.current === 'hi'
-                    ? 'ठीक है, बंद कर रहा हूँ। जब चाहें माइक दबाएं।'
-                    : 'Okay, stopping. Tap the mic when ready.',
-                true // shouldStop
+            await speakAndFinish(
+                langRef.current === 'hi' ? 'ठीक है, बंद कर रहा हूँ।' : 'Okay, stopping.',
+                true
             );
             processingRef.current = false;
             return;
         }
 
-        // Check quick navigation (0ms)
-        const nav = detectQuickNav(transcript);
+        // Quick nav detection (instant, 0ms)
+        const navRoute = detectQuickNav(transcript);
 
-        // ALWAYS send to Gemini for intelligent response
-        // But if nav detected, also navigate
         try {
-            const gemini = await sendTextToGemini(
+            // ── PARALLEL: Stream Gemini + Start TTS on first sentence ──
+            let firstSentenceSpoken = false;
+            let fullReply = '';
+
+            const result = await streamGeminiResponse(
                 transcript,
                 langRef.current,
-                `${screenRef.current} | path: ${window.location.pathname}`
-            );
+                `${screenRef.current} | ${window.location.pathname}`,
+                // onSentence callback — TTS starts HERE
+                async (sentence, index) => {
+                    if (bargedInRef.current) return; // User interrupted
 
-            if (gemini.language && gemini.language !== langRef.current) {
-                // Count detections for auto-switch
-                // (Gemini detects language automatically)
-            }
+                    fullReply += (index > 0 ? ' ' : '') + sentence;
+                    setLastReply(fullReply);
 
-            const reply = gemini.reply || '';
+                    if (index === 0) {
+                        // FIRST sentence → start TTS immediately (parallel!)
+                        setStatus('speaking');
+                        isSpeakingRef.current = true;
+                        firstSentenceSpoken = true;
 
-            // Execute navigation
-            if (nav) {
-                if (nav.route === '__BACK__') {
-                    navigate(-1);
-                } else {
-                    navigate(nav.route);
+                        // Navigate NOW if detected (don't wait for TTS)
+                        if (navRoute) {
+                            executeNav(navRoute);
+                        }
+                    }
+
+                    // Queue TTS for each sentence (they play in order)
+                    if (!bargedInRef.current) {
+                        await queueTTS(sentence, langRef.current);
+                    }
                 }
-                addLog?.(`📍 Nav → ${nav.route}`);
-            } else if (gemini.intent === 'navigate' && gemini.action_key) {
-                // Gemini also detected navigation
-                const routes = {
-                    'electricity': '/bill/electricity', 'water': '/bill/water',
-                    'gas': '/bill/gas', 'complaint': '/complaint',
-                    'quick_pay': '__GUEST__', 'citizen_login': '__CITIZEN__',
-                    'go_back': '__BACK__',
-                };
-                const r = routes[gemini.action_key];
-                if (r === '__GUEST__') { setScreen('guest'); navigate('/'); }
-                else if (r === '__CITIZEN__') { setScreen('citizen-auth'); }
-                else if (r === '__BACK__') { navigate(-1); }
-                else if (r) { navigate(r); }
-                addLog?.(`📍 Gemini nav → ${gemini.action_key}`);
-            } else if (gemini.intent === 'set_screen') {
-                if (gemini.action_key === 'quick_pay') { setScreen('guest'); navigate('/'); }
-                else if (gemini.action_key === 'citizen_login') { setScreen('citizen-auth'); }
+            );
+
+            // If streaming didn't trigger TTS (maybe very short response)
+            if (!firstSentenceSpoken && result.reply && !bargedInRef.current) {
+                setLastReply(result.reply);
+                setStatus('speaking');
+                isSpeakingRef.current = true;
+                await queueTTS(result.reply, langRef.current);
             }
 
-            // Speak response (recognition stays running for barge-in)
-            await respondAndListen(reply, false);
+            // Execute Gemini-detected navigation
+            if (!navRoute && result.intent === 'navigate' && result.action_key) {
+                const routes = {
+                    electricity: '/bill/electricity', water: '/bill/water',
+                    gas: '/bill/gas', complaint: '/complaint',
+                };
+                if (routes[result.action_key]) executeNav(routes[result.action_key]);
+            } else if (result.intent === 'set_screen') {
+                if (result.action_key === 'quick_pay') { setScreen('guest'); navigate('/'); }
+                else if (result.action_key === 'citizen_login') { setScreen('citizen-auth'); }
+            } else if (result.intent === 'go_back') {
+                navigate(-1);
+            } else if (navRoute && !firstSentenceSpoken) {
+                // Navigate even if TTS hasn't started
+                executeNav(navRoute);
+            }
+
         } catch (err) {
-            console.error('Gemini error:', err);
-            // Fallback response
-            await respondAndListen(
-                langRef.current === 'hi'
-                    ? 'माफ़ कीजिए, कृपया फिर से बोलें।'
-                    : 'Sorry, please try again.',
-                false
-            );
+            console.error('Pipeline error:', err);
+            if (!bargedInRef.current) {
+                await speakAndFinish(
+                    langRef.current === 'hi' ? 'माफ़ कीजिए, कृपया फिर से बोलें।'
+                        : 'Sorry, please try again.',
+                    false
+                );
+            }
         }
 
+        // Done speaking → back to listening
+        isSpeakingRef.current = false;
+        if (isActiveRef.current && !bargedInRef.current) {
+            setStatus('listening');
+        }
         processingRef.current = false;
     }, [navigate, setScreen, addLog]);
 
-    // ── Speak response while keeping recognition alive ──
-    const respondAndListen = useCallback(async (text, shouldStop = false) => {
-        if (!text) { setStatus('listening'); return; }
+    // ── Helpers ────────────────────────────────────────
+    const executeNav = useCallback((route) => {
+        if (route === '__BACK__') navigate(-1);
+        else navigate(route);
+        addLog?.(`📍 → ${route}`);
+    }, [navigate, addLog]);
 
+    const queueTTS = useCallback((text, lang) => {
+        return new Promise((resolve) => {
+            if (!window.speechSynthesis || !text || bargedInRef.current) {
+                resolve();
+                return;
+            }
+            const u = new SpeechSynthesisUtterance(text);
+            u.lang = TTS_LANGS[lang] || 'en-IN';
+            u.rate = 1.05;
+            u.pitch = 1;
+            u.volume = 1;
+            const voices = window.speechSynthesis.getVoices();
+            const v = voices.find(v => v.lang === u.lang) || voices.find(v => v.lang.startsWith(lang));
+            if (v) u.voice = v;
+            u.onend = () => resolve();
+            u.onerror = () => resolve();
+            window.speechSynthesis.speak(u);
+        });
+    }, []);
+
+    const speakAndFinish = useCallback(async (text, shouldStop) => {
         setLastReply(text);
         setStatus('speaking');
         isSpeakingRef.current = true;
-
-        // Speak — recognition is STILL running (barge-in ready)
-        await smartSpeak(text, langRef.current);
-
+        await speakText(text, langRef.current);
         isSpeakingRef.current = false;
-
-        if (shouldStop) {
-            deactivateVoice();
-        } else if (isActiveRef.current) {
-            setStatus('listening');
-        }
+        if (shouldStop) deactivateVoice();
+        else if (isActiveRef.current) setStatus('listening');
     }, []);
 
-    // ── ACTIVATE ──────────────────────────────────
-    const activateVoice = useCallback(() => {
+    // ── ACTIVATE ─────────────────────────────────────
+    const activateVoice = useCallback(async () => {
         if (isActiveRef.current) return;
         isActiveRef.current = true;
         setIsActive(true);
@@ -286,22 +348,27 @@ const VoiceAgent = memo(function VoiceAgent({
         setLastReply('');
         setInterimText('');
         stopSpeaking();
-        addLog?.('🟢 Voice agent ON');
+        addLog?.('🟢 Voice ON');
 
-        // Start recognition FIRST (barge-in ready from the start)
+        // Start VAD + Recognition in parallel
+        const vad = await initVAD();
+        if (vad) {
+            try { vad.start(); addLog?.('🎯 VAD active'); }
+            catch (e) { console.warn('VAD start failed:', e); }
+        }
         startRecognition();
 
-        // Then greet
+        // Greet
         const greetings = {
             gateway: {
-                hi: 'नमस्ते! बताइए, आपका अपना बिल है या किसी रिश्तेदार का?',
-                en: 'Hello! Tell me, is the bill in your name or a relative\'s?',
-                pa: 'ਸਤ ਸ੍ਰੀ ਅਕਾਲ! ਦੱਸੋ, ਬਿੱਲ ਤੁਹਾਡਾ ਹੈ ਜਾਂ ਕਿਸੇ ਦਾ?',
+                hi: 'नमस्ते! बताइए क्या करना है?',
+                en: 'Hello! What would you like to do?',
+                pa: 'ਸਤ ਸ੍ਰੀ ਅਕਾਲ! ਦੱਸੋ ਕੀ ਕਰਨਾ ਹੈ?',
             },
             guest: {
-                hi: 'बोलिए, क्या करना है? बिजली, पानी, गैस का बिल या शिकायत?',
-                en: 'What would you like to do? Electricity, water, gas bill or complaint?',
-                pa: 'ਦੱਸੋ, ਕੀ ਕਰਨਾ ਹੈ? ਬਿਜਲੀ, ਪਾਣੀ, ਗੈਸ ਜਾਂ ਸ਼ਿਕਾਇਤ?',
+                hi: 'बोलिए, कौन सा बिल भरना है?',
+                en: 'Which bill would you like to pay?',
+                pa: 'ਦੱਸੋ, ਕਿਹੜਾ ਬਿੱਲ ਭਰਨਾ ਹੈ?',
             },
             'citizen-dashboard': {
                 hi: 'बोलिए, क्या करना है?',
@@ -311,10 +378,10 @@ const VoiceAgent = memo(function VoiceAgent({
         };
         const g = greetings[screenRef.current] || greetings.guest;
         const text = g[langRef.current] || g.en;
-        respondAndListen(text, false);
-    }, [startRecognition, respondAndListen, addLog]);
+        await speakAndFinish(text, false);
+    }, [initVAD, startRecognition, addLog]);
 
-    // ── DEACTIVATE ────────────────────────────────
+    // ── DEACTIVATE ───────────────────────────────────
     const deactivateVoice = useCallback(() => {
         isActiveRef.current = false;
         setIsActive(false);
@@ -325,31 +392,31 @@ const VoiceAgent = memo(function VoiceAgent({
         stopSpeaking();
         clearTimeout(silenceTimerRef.current);
         try { recognitionRef.current?.abort(); } catch { }
-        addLog?.('🔴 Voice agent OFF');
+        try { vadRef.current?.pause(); } catch { }
+        addLog?.('🔴 Voice OFF');
     }, [addLog]);
 
-    // Cleanup
     useEffect(() => {
         return () => {
             isActiveRef.current = false;
             try { recognitionRef.current?.abort(); } catch { }
+            try { vadRef.current?.destroy(); } catch { }
             stopSpeaking();
         };
     }, []);
 
-    const contextValue = {
+    const ctx = {
         isActive, status, activate: activateVoice,
         deactivate: deactivateVoice, lastTranscript, lastReply,
     };
 
     return (
-        <VoiceContext.Provider value={contextValue}>
+        <VoiceContext.Provider value={ctx}>
             {children}
 
-            {/* ═══ VOICE STATUS UI ═══════════════════════ */}
+            {/* ═══ VOICE STATUS BAR ═══════════════════════ */}
             {isActive && (
                 <div className={`vo-bar vo-bar-${status}`}>
-                    {/* Left: Status indicator */}
                     <div className="vo-bar-left">
                         {status === 'listening' && (
                             <>
@@ -377,20 +444,16 @@ const VoiceAgent = memo(function VoiceAgent({
                                     ))}
                                 </div>
                                 <span className="vo-bar-reply">
-                                    {lastReply?.substring(0, 70)}{lastReply?.length > 70 ? '...' : ''}
+                                    {lastReply?.substring(0, 80)}{lastReply?.length > 80 ? '...' : ''}
                                 </span>
                             </>
                         )}
                     </div>
-
-                    {/* Right: Stop button */}
-                    <button
-                        className="vo-bar-close"
+                    <button className="vo-bar-close"
                         onClick={status === 'speaking'
-                            ? () => { stopSpeaking(); isSpeakingRef.current = false; setStatus('listening'); }
+                            ? () => { stopSpeaking(); isSpeakingRef.current = false; bargedInRef.current = true; setStatus('listening'); }
                             : deactivateVoice
-                        }
-                    >
+                        }>
                         {status === 'speaking' ? '⏭' : '✕'}
                     </button>
                 </div>
