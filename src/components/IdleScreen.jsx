@@ -1,92 +1,147 @@
 /**
  * ═══════════════════════════════════════════════════════════
- * IdleScreen v8 — Fixed Voice Choice
+ * IdleScreen v9 — Language First, Then Voice/Touch
  *
- * KEY FIX: If user speaks ANYTHING during choice, they chose
- * voice mode! (They're already talking = they want voice.)
+ * STEP 1: Language Selection
+ *   - Auto-detect location → show top 5 regional languages
+ *   - All 22+ languages in expandable section
+ *   - English + Hindi always on top
+ *
+ * STEP 2: Voice/Touch Choice (in selected language)
+ *   - TTS greeting in chosen language
+ *   - Any speech = voice mode
+ *   - Touch button = touch mode
  * ═══════════════════════════════════════════════════════════
  */
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, memo } from 'react';
+import {
+    ALL_LANGUAGES,
+    detectRegion,
+    getLang,
+} from '../utils/regionalLanguages';
 
-const GOV_ADS = [
-    { title: 'Jal Jeevan Mission 💧', subtitle: 'Har Ghar Nal Se Jal — Clean water for every household', source: 'Ministry of Jal Shakti', gradient: 'linear-gradient(160deg, #064E3B, #065F46, #0D9488)', video: 'https://cdn.pixabay.com/video/2020/05/25/39831-423375657_large.mp4' },
-    { title: 'Digital India 🇮🇳', subtitle: 'Connecting 1.4 billion citizens to government services', source: 'Ministry of Electronics & IT', gradient: 'linear-gradient(160deg, #1E3A5F, #1E40AF, #6366F1)', video: 'https://cdn.pixabay.com/video/2021/04/04/69623-534500128_large.mp4' },
-    { title: 'Swachh Bharat 🌿', subtitle: 'Clean India, Green India — A movement by every citizen', source: 'Ministry of Housing & Urban Affairs', gradient: 'linear-gradient(160deg, #14532D, #15803D, #22C55E)', video: 'https://cdn.pixabay.com/video/2019/11/08/28697-372261598_large.mp4' },
-    { title: 'Ayushman Bharat 🏥', subtitle: 'Free healthcare for 50 crore citizens', source: 'National Health Authority', gradient: 'linear-gradient(160deg, #4C1D95, #6D28D9, #8B5CF6)', video: null },
-];
+// Two-step flow
+const STEP_LANG = 'lang';
+const STEP_CHOICE = 'choice';
 
-export default function IdleScreen({ onStart }) {
-    const [currentSlide, setCurrentSlide] = useState(0);
-    const [choosing, setChoosing] = useState(false);
-    const [videoLoaded, setVideoLoaded] = useState(false);
-    const [listenStatus, setListenStatus] = useState(''); // '', 'listening', 'heard'
+// Greetings in each language
+const GREETINGS = {
+    en: { welcome: 'Welcome!', question: 'How would you like to interact?', voiceLabel: 'By Voice', voiceSub: 'Speak', touchLabel: 'By Touch', touchSub: 'Tap', listenHint: 'Say anything = Voice mode ✨', listening: '🎧 Listening... say anything', heard: '✓ Heard!', voiceConfirm: "Great! Let's get started.", ttsGreet: 'Welcome! Would you like to use voice or touch?' },
+    hi: { welcome: 'स्वागत है!', question: 'आप कैसे काम करना चाहेंगे?', voiceLabel: 'बोलकर', voiceSub: 'Voice', touchLabel: 'छूकर', touchSub: 'Touch', listenHint: 'कुछ भी बोलें = Voice mode ✨', listening: '🎧 सुन रहा हूँ... कुछ भी बोलें', heard: '✓ सुन लिया!', voiceConfirm: 'बहुत अच्छा! चलिए शुरू करते हैं।', ttsGreet: 'स्वागत है! बोलकर काम करना चाहेंगे, या टच से?' },
+    pa: { welcome: 'ਜੀ ਆਇਆਂ ਨੂੰ!', question: 'ਤੁਸੀਂ ਕਿਵੇਂ ਕੰਮ ਕਰਨਾ ਚਾਹੋਗੇ?', voiceLabel: 'ਬੋਲ ਕੇ', voiceSub: 'Voice', touchLabel: 'ਛੂਹ ਕੇ', touchSub: 'Touch', listenHint: 'ਕੁਝ ਵੀ ਬੋਲੋ = Voice mode ✨', listening: '🎧 ਸੁਣ ਰਿਹਾ ਹਾਂ...', heard: '✓ ਸੁਣ ਲਿਆ!', voiceConfirm: 'ਬਹੁਤ ਵਧੀਆ! ਚੱਲੋ ਸ਼ੁਰੂ ਕਰਦੇ ਹਾਂ।', ttsGreet: 'ਜੀ ਆਇਆਂ ਨੂੰ! ਬੋਲ ਕੇ ਕੰਮ ਕਰਨਾ ਚਾਹੋਗੇ, ਜਾਂ ਛੂਹ ਕੇ?' },
+    bn: { welcome: 'স্বাগতম!', question: 'আপনি কিভাবে কাজ করতে চান?', voiceLabel: 'বলে', voiceSub: 'Voice', touchLabel: 'ছুয়ে', touchSub: 'Touch', listenHint: 'যেকোনো কিছু বলুন', listening: '🎧 শুনছি...', heard: '✓ শুনেছি!', voiceConfirm: 'দারুণ! চলুন শুরু করি।', ttsGreet: 'স্বাগতম! বলে কাজ করবেন, না ছুয়ে?' },
+    ta: { welcome: 'வரவேற்கிறோம்!', question: 'எப்படி வேலை செய்ய விரும்புகிறீர்கள்?', voiceLabel: 'பேசி', voiceSub: 'Voice', touchLabel: 'தொட்டு', touchSub: 'Touch', listenHint: 'ஏதாவது சொல்லுங்கள்', listening: '🎧 கேட்கிறேன்...', heard: '✓ கேட்டேன்!', voiceConfirm: 'நல்லது! ஆரம்பிக்கலாம்.', ttsGreet: 'வரவேற்கிறோம்! பேசி வேலை செய்வீர்களா, தொட்டு?' },
+    te: { welcome: 'స్వాగతం!', question: 'మీరు ఎలా పని చేయాలనుకుంటున్నారు?', voiceLabel: 'మాట్లాడి', voiceSub: 'Voice', touchLabel: 'తాకి', touchSub: 'Touch', listenHint: 'ఏదైనా చెప్పండి', listening: '🎧 వింటున్నాను...', heard: '✓ విన్నాను!', voiceConfirm: 'భలే! మొదలు పెడదాం.', ttsGreet: 'స్వాగతం! మాట్లాడి పని చేస్తారా, తాకి?' },
+    mr: { welcome: 'स्वागत!', question: 'तुम्हाला कसे काम करायचे आहे?', voiceLabel: 'बोलून', voiceSub: 'Voice', touchLabel: 'स्पर्श करून', touchSub: 'Touch', listenHint: 'काहीही बोला', listening: '🎧 ऐकतोय...', heard: '✓ ऐकले!', voiceConfirm: 'छान! चला सुरू करूया.', ttsGreet: 'स्वागत! बोलून काम करायचे आहे, की स्पर्श करून?' },
+};
+
+const getGreeting = (lang) => GREETINGS[lang] || GREETINGS.en;
+
+const LangButton = memo(function LangButton({ lang, isSelected, onSelect }) {
+    return (
+        <button onClick={() => onSelect(lang.code)}
+            className={`p-3 rounded-xl cursor-pointer border transition-all text-center hover:scale-[1.02] active:scale-95 ${isSelected
+                ? 'bg-indigo-500/20 border-indigo-500/50 shadow-lg shadow-indigo-500/10'
+                : 'bg-white/5 border-white/8 hover:bg-white/10 hover:border-white/20'}`}
+        >
+            <p className="text-lg font-bold leading-tight" style={{ color: isSelected ? '#A5B4FC' : '#F1F5F9' }}>
+                {lang.native}
+            </p>
+            <p className="text-xs font-medium mt-1" style={{ color: isSelected ? '#818CF8' : 'rgba(255,255,255,0.35)' }}>
+                {lang.name}
+            </p>
+            {isSelected && (
+                <div className="w-5 h-5 rounded-full bg-indigo-500 text-white text-xs flex items-center justify-center mx-auto mt-1.5">✓</div>
+            )}
+        </button>
+    );
+});
+
+export default function IdleScreen({ onStart, lang, setLang }) {
+    const [step, setStep] = useState(STEP_LANG);
+    const [regionLangs, setRegionLangs] = useState([]);
+    const [allLangs, setAllLangs] = useState([]);
+    const [showAll, setShowAll] = useState(false);
+    const [isDetecting, setIsDetecting] = useState(true);
+    const [detectedState, setDetectedState] = useState(null);
+    const [selectedLang, setSelectedLang] = useState(lang || 'hi');
+    const [listenStatus, setListenStatus] = useState('');
 
     const isWakingRef = useRef(false);
     const recognitionRef = useRef(null);
     const hasGreetedRef = useRef(false);
 
-    // Auto-rotate slides
+    // ── STEP 1: Detect region on mount ──────────────
     useEffect(() => {
-        const timer = setInterval(() => {
-            setCurrentSlide((p) => (p + 1) % GOV_ADS.length);
-            setVideoLoaded(false);
-        }, 7000);
-        return () => clearInterval(timer);
+        setIsDetecting(true);
+        detectRegion().then(({ state, languages, reason }) => {
+            setDetectedState(state);
+            setRegionLangs(languages);
+            setIsDetecting(false);
+
+            // Build "all" list: regional first, then rest
+            const regionalCodes = new Set(languages.map(l => l.code));
+            const rest = ALL_LANGUAGES.filter(l => !regionalCodes.has(l.code));
+            setAllLangs([...languages, ...rest]);
+
+            console.log(`[IdleScreen] Region: ${state} (${reason}), langs: ${languages.map(l => l.code).join(',')}`);
+        });
     }, []);
 
-    const handleScreenTap = useCallback(() => {
-        if (isWakingRef.current) return;
-        if (!choosing) {
-            setChoosing(true);
-            greetAndListen();
-        }
-    }, [choosing]);
+    // Handle language selection
+    const handleSelectLang = useCallback((code) => {
+        setSelectedLang(code);
+        setLang(code);
+        console.log(`[IdleScreen] Language selected: ${code}`);
+    }, [setLang]);
 
-    const greetAndListen = useCallback(() => {
-        if (hasGreetedRef.current) return;
-        hasGreetedRef.current = true;
-        console.log('[IdleScreen] Greeting + starting choice listener');
+    // Proceed to voice/touch choice
+    const goToChoice = useCallback(() => {
+        setStep(STEP_CHOICE);
+        hasGreetedRef.current = false;
 
-        // Play greeting TTS
+        // Play greeting in selected language
+        const g = getGreeting(selectedLang);
+        const speechCode = getLang(selectedLang).speechCode;
+
+        console.log(`[IdleScreen] → Choice step, lang=${selectedLang}`);
+
         try {
             window.speechSynthesis?.cancel();
-            const u = new SpeechSynthesisUtterance('स्वागत है! आप बोलकर काम करना चाहेंगे, या टच से?');
-            u.lang = 'hi-IN';
+            const u = new SpeechSynthesisUtterance(g.ttsGreet);
+            u.lang = speechCode;
             u.rate = 1;
             const voices = window.speechSynthesis?.getVoices() || [];
-            const hindi = voices.find(v => v.lang === 'hi-IN');
-            if (hindi) u.voice = hindi;
+            const match = voices.find(v => v.lang === speechCode);
+            if (match) u.voice = match;
 
             u.onend = () => {
-                // Start listening AFTER greeting
-                console.log('[IdleScreen] Greeting done, starting listener');
-                startChoiceListening();
+                console.log('[IdleScreen] Greeting done → listening for choice');
+                startChoiceListening(speechCode);
             };
-            u.onerror = () => startChoiceListening();
+            u.onerror = () => startChoiceListening(speechCode);
 
             window.speechSynthesis.speak(u);
+            hasGreetedRef.current = true;
         } catch {
-            // TTS failed, just start listening
-            startChoiceListening();
+            startChoiceListening(speechCode);
         }
-    }, []);
+    }, [selectedLang]);
 
-    const startChoiceListening = useCallback(() => {
+    // ── Choice Listening ────────────────────────────
+    const startChoiceListening = useCallback((speechCode) => {
         if (isWakingRef.current) return;
 
         const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-        if (!SR) {
-            console.log('[IdleScreen] ❌ SpeechRecognition not supported');
-            return;
-        }
+        if (!SR) { console.log('[IdleScreen] ❌ No SpeechRecognition'); return; }
 
         try { recognitionRef.current?.abort(); } catch { }
 
         const r = new SR();
-        r.lang = 'hi-IN';
+        r.lang = speechCode || 'hi-IN';
         r.continuous = false;
-        r.interimResults = true; // Show interim for feedback
+        r.interimResults = true;
 
         r.onstart = () => {
             console.log('[IdleScreen] 🎧 Choice listener STARTED');
@@ -98,48 +153,38 @@ export default function IdleScreen({ onStart }) {
             console.log(`[IdleScreen] 💬 Heard: "${text}"`);
             setListenStatus('heard');
 
-            // KEY FIX: If user speaks ANYTHING, they chose voice!
-            // They're already talking = they want voice mode.
-            // Only check for explicit "touch" keywords to reject voice.
-            const lower = text.toLowerCase();
-            const touchWords = ['touch', 'छूकर', 'chhukar', 'chukar', 'button', 'screen'];
-            const isTouchChoice = touchWords.some(w => lower.includes(w));
+            // Any speech = voice! Only explicit touch words reject.
+            const touchWords = ['touch', 'छूकर', 'chhukar', 'chukar', 'button', 'screen', 'ਛੂਹ', 'taakin', 'sparshaad'];
+            const isTouchChoice = touchWords.some(w => text.toLowerCase().includes(w));
 
             if (e.results[0].isFinal) {
                 if (isTouchChoice) {
-                    console.log('[IdleScreen] → Touch mode chosen');
+                    console.log('[IdleScreen] → Touch mode');
                     chooseTouch();
                 } else {
-                    // ANY other speech = voice mode!
-                    console.log('[IdleScreen] → Voice mode chosen (user spoke!)');
+                    console.log('[IdleScreen] → Voice mode (user spoke!)');
                     chooseVoice();
                 }
             }
         };
 
         r.onend = () => {
-            console.log('[IdleScreen] 🔄 Choice listener ended');
-            // Restart if still choosing
             if (!isWakingRef.current) {
                 setListenStatus('');
-                setTimeout(() => startChoiceListening(), 500);
+                setTimeout(() => startChoiceListening(speechCode), 500);
             }
         };
-
         r.onerror = (e) => {
-            console.log(`[IdleScreen] ⚠️ Choice listener error: ${e.error}`);
             if (!isWakingRef.current && e.error !== 'aborted') {
                 setListenStatus('');
-                setTimeout(() => startChoiceListening(), 1500);
+                setTimeout(() => startChoiceListening(speechCode), 1500);
             }
         };
 
         recognitionRef.current = r;
-        try {
-            r.start();
-        } catch (err) {
+        try { r.start(); } catch (err) {
             console.log(`[IdleScreen] ❌ start() failed: ${err.message}`);
-            setTimeout(() => startChoiceListening(), 1000);
+            setTimeout(() => startChoiceListening(speechCode), 1000);
         }
     }, []);
 
@@ -149,15 +194,16 @@ export default function IdleScreen({ onStart }) {
         window.speechSynthesis?.cancel();
         try { recognitionRef.current?.abort(); } catch { }
 
+        const g = getGreeting(selectedLang);
         try {
-            const u = new SpeechSynthesisUtterance('बहुत अच्छा! चलिए शुरू करते हैं।');
-            u.lang = 'hi-IN';
+            const u = new SpeechSynthesisUtterance(g.voiceConfirm);
+            u.lang = getLang(selectedLang).speechCode;
             u.rate = 1.1;
             window.speechSynthesis.speak(u);
         } catch { }
 
         setTimeout(() => onStart?.(true), 800);
-    }, [onStart]);
+    }, [onStart, selectedLang]);
 
     const chooseTouch = useCallback(() => {
         if (isWakingRef.current) return;
@@ -175,66 +221,123 @@ export default function IdleScreen({ onStart }) {
         };
     }, []);
 
-    const ad = GOV_ADS[currentSlide];
+    const g = getGreeting(selectedLang);
+    const displayLangs = showAll ? allLangs : regionLangs;
 
     return (
-        <div
-            className={`fixed inset-0 z-50 flex flex-col items-center justify-center overflow-hidden transition-opacity duration-500 ${isWakingRef.current ? 'opacity-0' : 'opacity-100'}`}
-            style={{ background: ad.gradient, transition: 'background 1.5s ease' }}
-            onClick={handleScreenTap}
-            role="button"
-            aria-label="Touch to start"
-        >
-            {/* Background Video */}
-            {ad.video && (
-                <video key={ad.video} src={ad.video} autoPlay muted loop playsInline
-                    onLoadedData={() => setVideoLoaded(true)}
-                    className="absolute inset-0 w-full h-full object-cover transition-opacity duration-1000"
-                    style={{ opacity: videoLoaded ? 0.3 : 0 }} />
-            )}
-            <div className="absolute inset-0 pointer-events-none"
-                style={{ background: `${ad.gradient}, linear-gradient(to top, rgba(0,0,0,0.7) 0%, transparent 50%)`, opacity: 0.85 }} />
-            <div className="absolute inset-0 overflow-hidden pointer-events-none">
-                <div className="absolute -top-32 -right-32 w-96 h-96 rounded-full opacity-10" style={{ background: 'white' }} />
-            </div>
+        <div className="fixed inset-0 z-50 overflow-y-auto fast-fade-in"
+            style={{ background: 'linear-gradient(160deg, #0F172A 0%, #1E293B 50%, #0F172A 100%)' }}>
+            <div className="min-h-screen flex flex-col items-center justify-start px-4 py-6 max-w-2xl mx-auto">
 
-            {/* Top Bar */}
-            <div className="absolute top-0 left-0 right-0 p-6 flex items-center justify-between z-10">
-                <div className="flex items-center gap-3">
-                    <div className="w-12 h-12 bg-white/15 rounded-xl flex items-center justify-center shadow-lg">
-                        <span className="text-white text-xl font-black">S</span>
+                {/* Header */}
+                <div className="text-center mb-5 w-full">
+                    <div className="flex items-center justify-center gap-2 mb-3">
+                        <div className="w-10 h-10 gradient-primary rounded-xl flex items-center justify-center">
+                            <span className="text-white text-lg font-black">S</span>
+                        </div>
+                        <h1 className="text-2xl font-black text-white">SUVIDHA Setu</h1>
+                        <span className="proto-badge">🔧 Prototype</span>
                     </div>
-                    <div>
-                        <p className="text-white/90 font-bold text-lg leading-tight">SUVIDHA Setu</p>
-                        <p className="text-white/50 text-xs font-medium">Smart Civic Kiosk</p>
+                    <div className="flex h-1 rounded-full overflow-hidden max-w-xs mx-auto mb-4">
+                        <div className="flex-1" style={{ background: '#FF9933' }} />
+                        <div className="flex-1" style={{ background: '#FFFFFF' }} />
+                        <div className="flex-1" style={{ background: '#138808' }} />
                     </div>
                 </div>
-                <span className="proto-badge">🔧 Prototype</span>
-            </div>
 
-            {/* Center Content */}
-            <div className="relative z-10 flex flex-col items-center text-center px-8 max-w-2xl">
-                {/* ── CHOICE MODE ──────────────────────── */}
-                {choosing ? (
-                    <div className="fast-fade-in flex flex-col items-center gap-6" onClick={(e) => e.stopPropagation()}>
-                        <div className="mb-2">
-                            <h2 className="text-3xl md:text-4xl font-black text-white mb-3 leading-tight">
-                                स्वागत है! 🙏
-                            </h2>
-                            <p className="text-lg text-white/70 font-medium">
-                                आप कैसे काम करना चाहेंगे?
-                            </p>
+                {/* ═══════════════════════════════════════════ */}
+                {/* STEP 1: LANGUAGE SELECTION                 */}
+                {/* ═══════════════════════════════════════════ */}
+                {step === STEP_LANG && (
+                    <div className="w-full fast-fade-in">
+                        {/* Step indicator */}
+                        <div className="flex items-center justify-center gap-3 mb-5">
+                            <div className="w-8 h-8 rounded-full bg-indigo-500 text-white text-sm font-bold flex items-center justify-center">1</div>
+                            <div className="w-16 h-0.5 bg-white/10" />
+                            <div className="w-8 h-8 rounded-full bg-white/10 text-white/30 text-sm font-bold flex items-center justify-center">2</div>
                         </div>
 
+                        <h2 className="text-2xl font-black text-white mb-1 text-center">Choose Your Language</h2>
+                        <p className="text-white/40 font-medium text-sm text-center mb-4">अपनी भाषा चुनें • ਆਪਣੀ ਭਾਸ਼ਾ ਚੁਣੋ</p>
+
+                        {/* Region detection */}
+                        <div className="w-full mb-3">
+                            {isDetecting ? (
+                                <div className="flex items-center justify-center gap-2 py-2 px-4 rounded-xl bg-white/5 border border-white/10">
+                                    <div className="w-3 h-3 rounded-full bg-indigo-400 animate-pulse" />
+                                    <span className="text-white/50 text-sm">Detecting your region...</span>
+                                </div>
+                            ) : detectedState && (
+                                <div className="flex items-center justify-center gap-2 py-2 px-4 rounded-xl bg-green-500/10 border border-green-500/20">
+                                    <span className="text-green-400 text-sm">📍 <strong>{detectedState}</strong> — showing regional languages</span>
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Toggle */}
+                        <div className="w-full flex items-center justify-between mb-2">
+                            <p className="text-white/30 text-xs font-semibold uppercase tracking-wider">
+                                {showAll ? `All (${allLangs.length})` : `Top Languages`}
+                            </p>
+                            <button onClick={() => setShowAll(!showAll)}
+                                className="text-indigo-400 text-xs font-bold cursor-pointer bg-transparent border-0 hover:text-indigo-300">
+                                {showAll ? '← Top' : `All ${allLangs.length} →`}
+                            </button>
+                        </div>
+
+                        {/* Language Grid */}
+                        <div className={`w-full grid gap-2 mb-5 ${displayLangs.length > 6 ? 'grid-cols-3 md:grid-cols-4' : 'grid-cols-3'}`}>
+                            {displayLangs.map((l) => (
+                                <LangButton key={l.code} lang={l} isSelected={selectedLang === l.code} onSelect={handleSelectLang} />
+                            ))}
+                        </div>
+
+                        {/* Continue button */}
+                        <button onClick={goToChoice}
+                            className="w-full py-4 rounded-2xl text-white font-bold text-lg cursor-pointer border-0 hover:scale-[1.01] active:scale-[0.99] transition-transform shadow-lg shadow-indigo-500/20"
+                            style={{ background: 'linear-gradient(135deg, #6366F1, #4F46E5)' }}>
+                            Continue → आगे बढ़ें
+                        </button>
+
+                        <p className="text-white/20 text-xs text-center mt-4">
+                            Selected: <strong className="text-white/40">{getLang(selectedLang).native} ({getLang(selectedLang).name})</strong>
+                        </p>
+                    </div>
+                )}
+
+                {/* ═══════════════════════════════════════════ */}
+                {/* STEP 2: VOICE / TOUCH CHOICE               */}
+                {/* ═══════════════════════════════════════════ */}
+                {step === STEP_CHOICE && (
+                    <div className="w-full fast-fade-in flex flex-col items-center">
+                        {/* Step indicator */}
+                        <div className="flex items-center justify-center gap-3 mb-6">
+                            <div className="w-8 h-8 rounded-full bg-green-500 text-white text-sm font-bold flex items-center justify-center">✓</div>
+                            <div className="w-16 h-0.5 bg-indigo-500" />
+                            <div className="w-8 h-8 rounded-full bg-indigo-500 text-white text-sm font-bold flex items-center justify-center">2</div>
+                        </div>
+
+                        {/* Selected language tag */}
+                        <div className="flex items-center gap-2 bg-indigo-500/10 border border-indigo-500/20 rounded-full px-4 py-1.5 mb-6">
+                            <span className="text-indigo-300 text-sm font-medium">🌐 {getLang(selectedLang).native}</span>
+                        </div>
+
+                        <h2 className="text-3xl md:text-4xl font-black text-white mb-3 leading-tight text-center">
+                            {g.welcome} 🙏
+                        </h2>
+                        <p className="text-lg text-white/70 font-medium mb-8 text-center">
+                            {g.question}
+                        </p>
+
                         {/* Two big choice buttons */}
-                        <div className="flex gap-5">
+                        <div className="flex gap-5 mb-6">
                             <button onClick={chooseVoice}
                                 className="w-44 h-44 rounded-3xl flex flex-col items-center justify-center gap-3 cursor-pointer border-2 border-indigo-500/40 hover:border-indigo-400 hover:scale-105 active:scale-95 transition-all"
                                 style={{ background: 'linear-gradient(160deg, rgba(99,102,241,0.25), rgba(99,102,241,0.1))' }}>
                                 <span className="text-5xl">🎙️</span>
                                 <div>
-                                    <p className="text-white font-bold text-lg">बोलकर</p>
-                                    <p className="text-white/50 text-xs">Voice</p>
+                                    <p className="text-white font-bold text-lg">{g.voiceLabel}</p>
+                                    <p className="text-white/50 text-xs">{g.voiceSub}</p>
                                 </div>
                                 <div className="flex items-center gap-0.5 h-4">
                                     {[...Array(5)].map((_, i) => (
@@ -248,8 +351,8 @@ export default function IdleScreen({ onStart }) {
                                 style={{ background: 'linear-gradient(160deg, rgba(16,185,129,0.25), rgba(16,185,129,0.1))' }}>
                                 <span className="text-5xl">👆</span>
                                 <div>
-                                    <p className="text-white font-bold text-lg">छूकर</p>
-                                    <p className="text-white/50 text-xs">Touch</p>
+                                    <p className="text-white font-bold text-lg">{g.touchLabel}</p>
+                                    <p className="text-white/50 text-xs">{g.touchSub}</p>
                                 </div>
                             </button>
                         </div>
@@ -259,53 +362,37 @@ export default function IdleScreen({ onStart }) {
                             {listenStatus === 'listening' && (
                                 <>
                                     <div className="w-2.5 h-2.5 rounded-full bg-indigo-400 animate-pulse" />
-                                    <span className="text-indigo-300 text-sm font-medium">🎧 सुन रहा हूँ... कुछ भी बोलें</span>
+                                    <span className="text-indigo-300 text-sm font-medium">{g.listening}</span>
                                 </>
                             )}
                             {listenStatus === 'heard' && (
                                 <>
                                     <div className="w-2.5 h-2.5 rounded-full bg-green-400" />
-                                    <span className="text-green-300 text-sm font-medium">✓ सुन लिया!</span>
+                                    <span className="text-green-300 text-sm font-medium">{g.heard}</span>
                                 </>
                             )}
                             {!listenStatus && (
-                                <span className="text-white/40 text-sm">कुछ भी बोलें = Voice mode ✨</span>
+                                <span className="text-white/40 text-sm">{g.listenHint}</span>
                             )}
                         </div>
+
+                        {/* Back to language */}
+                        <button onClick={() => { setStep(STEP_LANG); try { recognitionRef.current?.abort(); } catch { } window.speechSynthesis?.cancel(); setListenStatus(''); }}
+                            className="mt-6 text-white/30 text-sm cursor-pointer bg-transparent border-0 hover:text-white/50">
+                            ← Change Language
+                        </button>
                     </div>
-                ) : (
-                    <>
-                        <div key={currentSlide} className="mb-12 fast-fade-in">
-                            <h2 className="text-5xl md:text-6xl font-black text-white mb-4 leading-tight drop-shadow-lg">{ad.title}</h2>
-                            <p className="text-xl text-white/70 font-medium drop-shadow">{ad.subtitle}</p>
-                        </div>
-
-                        <div className="idle-pulse rounded-full">
-                            <button className="w-44 h-44 rounded-full bg-white/15 border-2 border-white/30 flex flex-col items-center justify-center shadow-2xl hover:scale-105 active:scale-95 transition-transform cursor-pointer">
-                                <span className="text-5xl mb-2">👆</span>
-                                <p className="text-white font-bold text-sm leading-tight">Touch to Start</p>
-                                <p className="text-white/60 font-medium text-xs">शुरू करें</p>
-                            </button>
-                        </div>
-                    </>
                 )}
-            </div>
 
-            {/* Bottom */}
-            <div className="absolute bottom-0 left-0 right-0 p-6 z-10">
-                <div className="flex justify-center gap-2 mb-4">
-                    {GOV_ADS.map((_, i) => (
-                        <button key={i} onClick={(e) => { e.stopPropagation(); setCurrentSlide(i); setVideoLoaded(false); }}
-                            className="h-1.5 rounded-full transition-all duration-500 cursor-pointer border-0 p-0"
-                            style={{ width: i === currentSlide ? '32px' : '8px', background: i === currentSlide ? 'white' : 'rgba(255,255,255,0.3)' }} />
-                    ))}
+                {/* Bottom */}
+                <div className="mt-auto pt-6 text-center w-full">
+                    <div className="flex h-1 rounded-full overflow-hidden max-w-xs mx-auto mb-3">
+                        <div className="flex-1" style={{ background: '#FF9933' }} />
+                        <div className="flex-1" style={{ background: '#FFFFFF' }} />
+                        <div className="flex-1" style={{ background: '#138808' }} />
+                    </div>
+                    <p className="text-white/15 text-xs">C-DAC SUVIDHA 2026 — Empowering Citizens Through Technology</p>
                 </div>
-                <div className="flex h-1 rounded-full overflow-hidden max-w-xl mx-auto">
-                    <div className="flex-1" style={{ background: '#FF9933' }} />
-                    <div className="flex-1" style={{ background: '#FFFFFF' }} />
-                    <div className="flex-1" style={{ background: '#138808' }} />
-                </div>
-                <p className="text-center text-white/30 text-xs mt-3 font-medium">C-DAC SUVIDHA 2026</p>
             </div>
         </div>
     );

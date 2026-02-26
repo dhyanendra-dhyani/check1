@@ -434,23 +434,25 @@ const VoiceAgent = memo(function VoiceAgent({
         // Screen-specific greeting
         const greetings = {
             gateway: {
-                hi: 'भाषा चुनें, फिर बताइए — गेस्ट हैं या सिटीज़न लॉगिन करना है?',
-                en: 'Choose your language, then tell me — guest or citizen login?',
+                hi: 'ठीक है! बताइए — बिना लॉगिन के Quick Pay करना है, या Citizen लॉगिन?',
+                en: 'Tell me — Quick Pay without login, or Citizen login?',
+                pa: 'ਦੱਸੋ — ਬਿਨਾਂ ਲੌਗਇਨ Quick Pay, ਜਾਂ Citizen ਲੌਗਇਨ?',
             },
             guest: {
                 hi: 'बोलिए, कौन सा बिल भरना है — बिजली, पानी, या गैस?',
                 en: 'Which bill would you like to pay — electricity, water, or gas?',
+                pa: 'ਦੱਸੋ, ਕਿਹੜਾ ਬਿੱਲ ਭਰਨਾ ਹੈ — ਬਿਜਲੀ, ਪਾਣੀ, ਜਾਂ ਗੈਸ?',
             },
             'citizen-dashboard': {
-                hi: 'बोलिए, क्या करना है?',
-                en: 'What would you like to do?',
+                hi: 'बोलिए, क्या करना है — बिल भरना, शिकायत, या कुछ और?',
+                en: 'What would you like to do — pay a bill, file a complaint, or something else?',
             },
             'citizen-auth': {
-                hi: 'लॉगिन के लिए नीचे से तरीका चुनें।',
-                en: 'Choose a login method below.',
+                hi: 'लॉगिन के लिए नीचे से तरीका चुनें — अंगूठा, आँख, या OTP।',
+                en: 'Choose a login method below — thumb, iris, or OTP.',
             },
         };
-        const g = greetings[screenRef.current] || greetings.guest;
+        const g = greetings[screenRef.current] || greetings.gateway;
         const text = g[langRef.current] || g.en;
 
         setLastReply(text);

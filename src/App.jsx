@@ -116,7 +116,7 @@ function AppContent() {
 
           <Suspense fallback={<Loader />}>
             {screen === 'idle' && (
-              <IdleScreen onStart={(isVoice) => { setVoiceMode(!!isVoice); setScreen('gateway'); addLog(isVoice ? 'Voice mode' : 'Touch mode'); }} />
+              <IdleScreen lang={lang} setLang={setLang} onStart={(isVoice) => { setVoiceMode(!!isVoice); setScreen('gateway'); addLog(isVoice ? 'Voice mode' : 'Touch mode'); }} />
             )}
             {screen === 'gateway' && (
               <GatewayScreen lang={lang} setLang={setLang} onSelectPath={handlePath} />
