@@ -21,9 +21,11 @@ import { useLocation } from 'react-router-dom';
 import VoiceContext from './VoiceContext';
 import { streamGeminiResponse, stopSpeaking, hasApiKeys } from '../utils/geminiVoiceAgent';
 import {
-    CONV_STATES, CITIZEN_KEYWORDS, GUEST_KEYWORDS, BILL_KEYWORDS,
+    CONV_STATES, CITIZEN_KEYWORDS, GUEST_KEYWORDS,
     COMPLAINT_KEYWORDS, BACK_KEYWORDS, HOME_KEYWORDS, STOP_KEYWORDS,
-    matchesKeywords, detectBillType, findCommonAnswer, getPageGuidance,
+    YES_KEYWORDS,
+    matchesKeywords, detectBillType, detectComplaintCategory,
+    findCommonAnswer, getPageGuidance,
     getResponse, getInitialGreeting,
 } from '../utils/voiceKnowledgeBase';
 
