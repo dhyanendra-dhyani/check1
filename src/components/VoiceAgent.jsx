@@ -1,21 +1,19 @@
 /**
  * ═══════════════════════════════════════════════════════════
- * VoiceAgent v10 — Smart Navigation + Citizen Redirects
+ * VoiceAgent v11 — Screen-Change Detection + Auth Guidance
  *
- * FIXES:
- *   1. Back button → speaks CURRENT page guidance (not old)
- *   2. Citizen-required features in guest mode → redirect to login
- *   3. No-response timeout → re-prompts with different wording
- *   4. Route-change ALWAYS announces current page
- *   5. Handles "naam badalna", "gas pipeline" etc. smartly
+ * CRITICAL FIX: App uses TWO navigation systems:
+ *   1. React Router (URL: /bill/electricity, /complaint, /)
+ *   2. Screen state (screen: idle, gateway, guest, citizen-auth)
  *
- * FLOW:
- *   voiceMode=true → INITIAL greeting ("Aadhaar hai?")
- *   → 12s no response → re-prompt (different words)
- *   → answer → citizen/guest path
- *   → citizen-required feature in guest? → redirect to login
- *   → navigation → announce current page
- *   → Common Q&A instant / Gemini fallback
+ * Previous versions only watched URL changes. This version
+ * watches BOTH URL and screen state changes.
+ *
+ * ALSO FIXED:
+ *   - Detailed auth page guidance (thumb/iris/OTP step-by-step)
+ *   - "maph kijiye" loop → better fallback with clearer options
+ *   - Back button → proper page announcement
+ *   - Re-prompt only on WAIT_PATH state
  * ═══════════════════════════════════════════════════════════
  */
 
@@ -27,7 +25,6 @@ import {
     CONV_STATES, CITIZEN_KEYWORDS, GUEST_KEYWORDS,
     CITIZEN_REQUIRED_KEYWORDS, RE_PROMPT_GREETINGS,
     COMPLAINT_KEYWORDS, BACK_KEYWORDS, HOME_KEYWORDS, STOP_KEYWORDS,
-    YES_KEYWORDS,
     matchesKeywords, detectBillType,
     findCommonAnswer, getPageGuidance,
     getResponse, getInitialGreeting,
@@ -36,6 +33,22 @@ import {
 const SPEECH_LANGS = {
     en: 'en-IN', hi: 'hi-IN', pa: 'pa-IN', bn: 'bn-IN',
     ta: 'ta-IN', te: 'te-IN', kn: 'kn-IN', mr: 'mr-IN',
+};
+
+// ── SCREEN-SPECIFIC GUIDANCE (for non-URL transitions) ──
+const SCREEN_GUIDANCE = {
+    'citizen-auth': {
+        hi: 'ठीक है, लॉगिन पेज आ गया। आपके सामने तीन बटन हैं। पहला — अंगूठा लगाइए, बायोमेट्रिक मशीन पर दाईं तरफ अपना अंगूठा रखें। दूसरा — आँख स्कैन, कैमरे में देखें। तीसरा — OTP, मोबाइल पर कोड आएगा। सबसे आसान अंगूठा है — बस लगाइए, 2-3 सेकंड में हो जाएगा। या बोलें "अंगूठा", "आँख", या "OTP"।',
+        en: 'Login page is ready. Three buttons: First — Thumbprint, place your thumb on the biometric scanner on the right. Second — Iris scan, look at the camera. Third — OTP, you\'ll receive a code on your phone. Thumbprint is easiest — just 2-3 seconds. Say "thumb", "iris", or "OTP".',
+    },
+    'citizen-dashboard': {
+        hi: 'आपका डैशबोर्ड खुल गया है! यहाँ तीन सेक्शन हैं — ऊपर आपके बकाया बिल, बीच में आपकी शिकायतें, और नीचे अतिरिक्त सेवाएं जैसे नया कनेक्शन, नाम बदलाव। बोलें क्या करना है?',
+        en: 'Dashboard is open! Three sections — pending bills at top, your complaints in middle, extra services below. What would you like to do?',
+    },
+    guest: {
+        hi: 'ठीक है! बिना लॉगिन के सारे काम हो जाएँगे। बताइए कौन सा बिल भरना है — बिजली, पानी, या गैस? शिकायत भी दर्ज कर सकते हैं।',
+        en: 'No login needed! Which bill — electricity, water, or gas? You can also file a complaint.',
+    },
 };
 
 const VoiceAgent = memo(function VoiceAgent({
@@ -58,6 +71,7 @@ const VoiceAgent = memo(function VoiceAgent({
     const silenceTimerRef = useRef(null);
     const lastInterimRef = useRef('');
     const lastRouteRef = useRef('');
+    const lastScreenRef = useRef(screen);
     const restartCountRef = useRef(0);
     const convStateRef = useRef(CONV_STATES.INITIAL);
     const rePromptTimerRef = useRef(null);
@@ -108,7 +122,6 @@ const VoiceAgent = memo(function VoiceAgent({
     }, []);
 
     // ═══ RE-PROMPT TIMER ═════════════════════════════
-    // If user doesn't speak for 12s after greeting, repeat in different words
 
     const startRePromptTimer = useCallback(() => {
         clearTimeout(rePromptTimerRef.current);
@@ -128,10 +141,9 @@ const VoiceAgent = memo(function VoiceAgent({
             await ttsSpeak(text, langRef.current);
             rePromptCountRef.current++;
 
-            if (isActiveRef.current) {
+            if (isActiveRef.current && rePromptCountRef.current < 3) {
                 setStatus('listening');
-                // Set another re-prompt if still waiting
-                if (rePromptCountRef.current < 3) startRePromptTimer();
+                startRePromptTimer();
             }
         }, 12000);
     }, [log, ttsSpeak]);
@@ -167,7 +179,6 @@ const VoiceAgent = memo(function VoiceAgent({
                 setStatus('listening');
             }
 
-            // Cancel re-prompt timer when user speaks
             clearTimeout(rePromptTimerRef.current);
 
             if (last.isFinal) {
@@ -220,6 +231,18 @@ const VoiceAgent = memo(function VoiceAgent({
         try { r.start(); } catch { if (isActiveRef.current) setTimeout(() => startRecognition(), 1000); }
     }, [log]);
 
+    // ═══ SPEAK SCREEN GUIDANCE (helper) ═══════════════
+
+    const speakScreenGuidance = useCallback(async (screenName) => {
+        const g = SCREEN_GUIDANCE[screenName];
+        if (!g) return;
+        const text = g[langRef.current] || g.en;
+        log(`📍 Screen → ${screenName}: speaking guidance`);
+        setLastReply(text);
+        await ttsSpeak(text, langRef.current);
+        if (isActiveRef.current) setStatus('listening');
+    }, [log, ttsSpeak]);
+
     // ═══ KNOWLEDGE-BASE PROCESSING ═══════════════════
 
     const handleTranscript = useCallback(async (transcript) => {
@@ -235,6 +258,7 @@ const VoiceAgent = memo(function VoiceAgent({
         log(`🎤 [${convStateRef.current}] "${transcript}"`);
 
         const L = langRef.current;
+        const lower = transcript.toLowerCase();
 
         // ── STOP ──
         if (matchesKeywords(transcript, STOP_KEYWORDS)) {
@@ -246,14 +270,13 @@ const VoiceAgent = memo(function VoiceAgent({
             return;
         }
 
-        // ── BACK → navigate THEN let route-change handle guidance ──
+        // ── BACK ──
         if (matchesKeywords(transcript, BACK_KEYWORDS)) {
-            log('⬅️ Back navigation');
-            const backReply = L === 'hi' ? 'ठीक है, पीछे जा रहे हैं।' : 'Going back.';
-            setLastReply(backReply);
-            await ttsSpeak(backReply, L);
+            log('⬅️ Back');
+            const reply = L === 'hi' ? 'ठीक है, पीछे जा रहे हैं।' : 'Going back.';
+            setLastReply(reply);
+            await ttsSpeak(reply, L);
             navigate(-1);
-            // Route-change effect will speak the new page guidance
             processingRef.current = false;
             if (isActiveRef.current) setStatus('listening');
             return;
@@ -262,36 +285,61 @@ const VoiceAgent = memo(function VoiceAgent({
         // ── HOME ──
         if (matchesKeywords(transcript, HOME_KEYWORDS)) {
             navigate('/');
-            // Route-change will handle guidance
             processingRef.current = false;
             return;
         }
 
-        // ── CITIZEN-REQUIRED FEATURES (naam badalna, pipeline, etc.) ──
-        // If user asks for these in guest mode, redirect to citizen login
-        if (matchesKeywords(transcript, CITIZEN_REQUIRED_KEYWORDS)) {
-            log('🔐 Citizen-required feature detected');
-
-            // Pick the most specific response
-            let responseKey = 'citizen_required_redirect';
-            const lower = transcript.toLowerCase();
-            if (lower.includes('naam') || lower.includes('name') || lower.includes('नाम')) {
-                responseKey = 'citizen_required_naam';
-            } else if (lower.includes('pipeline') || lower.includes('gas line') || lower.includes('पाइपलाइन') || lower.includes('गैस लाइन')) {
-                responseKey = 'citizen_required_pipeline';
-            } else if (lower.includes('connection') || lower.includes('naya') || lower.includes('नया') || lower.includes('कनेक्शन')) {
-                responseKey = 'citizen_required_connection';
+        // ── AUTH ACTIONS: thumb/iris/OTP on citizen-auth screen ──
+        if (screenRef.current === 'citizen-auth') {
+            if (lower.includes('angootha') || lower.includes('thumb') || lower.includes('finger') || lower.includes('अंगूठा') || lower.includes('ungali')) {
+                log('👆 Thumb auth requested');
+                const r = L === 'hi'
+                    ? 'ठीक है, अंगूठा लगाइए — दाईं तरफ बायोमेट्रिक मशीन पर अपना अंगूठा रखें। 2-3 सेकंड में स्कैन हो जाएगा। नीचे "Thumb" बटन दबाएं।'
+                    : 'Place your thumb on the biometric scanner on the right. It\'ll scan in 2-3 seconds. Press the "Thumb" button below.';
+                setLastReply(r);
+                await ttsSpeak(r, L);
+                if (isActiveRef.current) setStatus('listening');
+                processingRef.current = false;
+                return;
             }
+            if (lower.includes('aankh') || lower.includes('iris') || lower.includes('eye') || lower.includes('आँख') || lower.includes('ankh')) {
+                log('👁️ Iris auth requested');
+                const r = L === 'hi'
+                    ? 'ठीक है, आँख स्कैन — कैमरे की तरफ देखें, अपनी आँख खुली रखें। 2-3 सेकंड में हो जाएगा। नीचे "Iris" बटन दबाएं।'
+                    : 'Look at the camera with your eye open. It\'ll scan in 2-3 seconds. Press the "Iris" button below.';
+                setLastReply(r);
+                await ttsSpeak(r, L);
+                if (isActiveRef.current) setStatus('listening');
+                processingRef.current = false;
+                return;
+            }
+            if (lower.includes('otp') || lower.includes('mobile') || lower.includes('code') || lower.includes('ओटीपी') || lower.includes('मोबाइल')) {
+                log('📱 OTP auth requested');
+                const r = L === 'hi'
+                    ? 'ठीक है, OTP वाला तरीका। पहले नीचे "OTP" बटन दबाएं। फिर अपना आधार से जुड़ा मोबाइल नंबर डालें। OTP आएगा, वो डालें और लॉगिन हो जाएगा। डेमो OTP है 482916।'
+                    : 'OTP method. Press "OTP" button below. Enter your Aadhaar-linked mobile number. You\'ll get an OTP. Demo OTP is 482916.';
+                setLastReply(r);
+                await ttsSpeak(r, L);
+                if (isActiveRef.current) setStatus('listening');
+                processingRef.current = false;
+                return;
+            }
+        }
+
+        // ── CITIZEN-REQUIRED FEATURES (naam badalna, pipeline, etc.) ──
+        if (matchesKeywords(transcript, CITIZEN_REQUIRED_KEYWORDS)) {
+            log('🔐 Citizen-required feature');
+            let responseKey = 'citizen_required_redirect';
+            if (lower.includes('naam') || lower.includes('name') || lower.includes('नाम')) responseKey = 'citizen_required_naam';
+            else if (lower.includes('pipeline') || lower.includes('gas line') || lower.includes('पाइपलाइन')) responseKey = 'citizen_required_pipeline';
+            else if (lower.includes('connection') || lower.includes('naya') || lower.includes('नया')) responseKey = 'citizen_required_connection';
 
             const r = getResponse(responseKey, L);
             setLastReply(r);
             await ttsSpeak(r, L);
-
-            // Redirect to citizen auth
             convStateRef.current = CONV_STATES.CITIZEN_AUTH;
             setScreen('citizen-auth');
-
-            if (isActiveRef.current) setStatus('listening');
+            // Screen-change detector will speak auth guidance after
             processingRef.current = false;
             return;
         }
@@ -299,7 +347,7 @@ const VoiceAgent = memo(function VoiceAgent({
         // ── COMMON Q&A (instant, no API) ──
         const qa = findCommonAnswer(transcript, L);
         if (qa) {
-            log('📚 Common Q&A match');
+            log('📚 Q&A match');
             setLastReply(qa);
             await ttsSpeak(qa, L);
             if (isActiveRef.current) setStatus('listening');
@@ -313,23 +361,21 @@ const VoiceAgent = memo(function VoiceAgent({
 
         const state = convStateRef.current;
 
-        // ── WAIT_PATH: waiting for citizen/guest answer ──
+        // ── WAIT_PATH: citizen/guest answer ──
         if (state === CONV_STATES.WAIT_PATH || state === CONV_STATES.INITIAL) {
 
-            // Citizen path?
             if (matchesKeywords(transcript, CITIZEN_KEYWORDS)) {
                 log('→ Citizen path');
                 convStateRef.current = CONV_STATES.CITIZEN_AUTH;
-                setScreen('citizen-auth');
                 const r = getResponse('citizen_chosen', L);
                 setLastReply(r);
                 await ttsSpeak(r, L);
-                if (isActiveRef.current) setStatus('listening');
+                // NOW switch screen — screen-change detector will add auth guidance
+                setScreen('citizen-auth');
                 processingRef.current = false;
                 return;
             }
 
-            // Guest path?
             if (matchesKeywords(transcript, GUEST_KEYWORDS)) {
                 log('→ Guest path');
                 convStateRef.current = CONV_STATES.GUEST_HOME;
@@ -343,7 +389,7 @@ const VoiceAgent = memo(function VoiceAgent({
                 return;
             }
 
-            // Bill directly mentioned? → Guest path + navigate
+            // Bill directly
             const billType = detectBillType(transcript);
             if (billType) {
                 log(`→ Direct bill: ${billType}`);
@@ -354,7 +400,7 @@ const VoiceAgent = memo(function VoiceAgent({
                 return;
             }
 
-            // Complaint mentioned?
+            // Complaint
             if (matchesKeywords(transcript, COMPLAINT_KEYWORDS)) {
                 log('→ Direct complaint');
                 convStateRef.current = CONV_STATES.COMPLAINT_CAT;
@@ -365,7 +411,7 @@ const VoiceAgent = memo(function VoiceAgent({
             }
         }
 
-        // ── Any state: nav by bill type ──
+        // ── Any state: bill/complaint nav ──
         const billType = detectBillType(transcript);
         if (billType) {
             log(`→ Bill: ${billType}`);
@@ -383,7 +429,7 @@ const VoiceAgent = memo(function VoiceAgent({
             return;
         }
 
-        // ── FALLBACK: Try Gemini ──
+        // ── FALLBACK: Gemini ──
         if (hasApiKeys()) {
             try {
                 let fullReply = '';
@@ -405,7 +451,6 @@ const VoiceAgent = memo(function VoiceAgent({
                     await ttsSpeak(result.reply, L);
                 }
 
-                // Gemini navigation
                 if (result.intent === 'navigate' && result.action_key) {
                     const routes = { electricity: '/bill/electricity', water: '/bill/water', gas: '/bill/gas', complaint: '/complaint', home: '/' };
                     if (routes[result.action_key]) navigate(routes[result.action_key]);
@@ -416,9 +461,11 @@ const VoiceAgent = memo(function VoiceAgent({
 
             } catch (err) {
                 log(`❌ Gemini: ${err.message}`);
-                const r = getResponse('not_understood', L);
-                setLastReply(r);
-                if (!bargedInRef.current) await ttsSpeak(r, L);
+                if (!bargedInRef.current) {
+                    const r = getResponse('not_understood', L);
+                    setLastReply(r);
+                    await ttsSpeak(r, L);
+                }
             }
         } else {
             const r = getResponse('not_understood', L);
@@ -429,9 +476,38 @@ const VoiceAgent = memo(function VoiceAgent({
         isSpeakingRef.current = false;
         if (isActiveRef.current && !bargedInRef.current) setStatus('listening');
         processingRef.current = false;
-    }, [navigate, setScreen, log, ttsSpeak, queueTTS]);
+    }, [navigate, setScreen, log, ttsSpeak, queueTTS, speakScreenGuidance]);
 
-    // ═══ ROUTE CHANGE → PAGE GUIDANCE (ALWAYS) ═══════
+    // ═══ SCREEN CHANGE DETECTION (gateway → auth, etc.) ═══
+
+    useEffect(() => {
+        if (!isActiveRef.current || !voiceMode) return;
+        if (screen === lastScreenRef.current) return;
+
+        const prevScreen = lastScreenRef.current;
+        lastScreenRef.current = screen;
+
+        log(`📺 Screen: ${prevScreen} → ${screen}`);
+
+        // Don't speak on initial load or on idle
+        if (!prevScreen || screen === 'idle') return;
+
+        const g = SCREEN_GUIDANCE[screen];
+        if (g) {
+            const text = g[langRef.current] || g.en;
+            // Delay slightly to let the page render and previous TTS finish
+            setTimeout(async () => {
+                if (isActiveRef.current && !isSpeakingRef.current) {
+                    log(`📍 Screen guidance: ${screen}`);
+                    setLastReply(text);
+                    await ttsSpeak(text, langRef.current);
+                    if (isActiveRef.current) setStatus('listening');
+                }
+            }, 1200);
+        }
+    }, [screen, voiceMode, log, ttsSpeak]);
+
+    // ═══ ROUTE CHANGE (URL: /bill/*, /complaint, /) ═══
 
     useEffect(() => {
         if (!isActiveRef.current || !voiceMode) return;
@@ -440,13 +516,10 @@ const VoiceAgent = memo(function VoiceAgent({
         if (currentPath !== lastRouteRef.current) {
             lastRouteRef.current = currentPath;
 
-            // ALWAYS speak guidance for the new page
             const guidance = getPageGuidance(currentPath, langRef.current);
             if (guidance) {
-                log(`📍 → ${currentPath}`);
+                log(`📍 Route → ${currentPath}`);
                 setLastReply(guidance);
-
-                // Small delay for page render, then speak
                 setTimeout(async () => {
                     if (isActiveRef.current && !isSpeakingRef.current) {
                         await ttsSpeak(guidance, langRef.current);
@@ -470,10 +543,10 @@ const VoiceAgent = memo(function VoiceAgent({
         restartCountRef.current = 0;
         rePromptCountRef.current = 0;
         lastRouteRef.current = window.location.pathname;
+        lastScreenRef.current = screen;
         convStateRef.current = CONV_STATES.WAIT_PATH;
         log('🟢 Activated');
 
-        // Initial greeting: the Aadhaar question
         const greeting = getInitialGreeting(langRef.current);
         setLastReply(greeting);
         setStatus('speaking');
@@ -483,10 +556,9 @@ const VoiceAgent = memo(function VoiceAgent({
             log('📢 Greeting done → listening');
             setStatus('listening');
             startRecognition();
-            // Start re-prompt timer
             startRePromptTimer();
         }
-    }, [startRecognition, startRePromptTimer, log, ttsSpeak]);
+    }, [screen, startRecognition, startRePromptTimer, log, ttsSpeak]);
 
     // ═══ DEACTIVATE ═════════════════════════════════
 
@@ -505,7 +577,7 @@ const VoiceAgent = memo(function VoiceAgent({
         log('🔴 Deactivated');
     }, [log]);
 
-    // Auto-activate on voice mode + screen change
+    // Auto-activate
     useEffect(() => {
         if (voiceMode && !isActiveRef.current && screen !== 'idle') {
             log('🔄 Auto-activate');
@@ -532,7 +604,6 @@ const VoiceAgent = memo(function VoiceAgent({
         <VoiceContext.Provider value={ctx}>
             {children}
 
-            {/* Voice Status Bar */}
             {isActive && (
                 <div className={`vo-bar vo-bar-${status}`}>
                     <div className="vo-bar-left">
