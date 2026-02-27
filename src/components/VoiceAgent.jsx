@@ -170,14 +170,11 @@ const VoiceAgent = memo(function VoiceAgent({
         r.onresult = (e) => {
             const last = e.results[e.results.length - 1];
 
-            // ═══ BARGE-IN: user speaks while agent is talking ═══
-            if (isSpeakingRef.current) {
-                log('🔇 Barge-in — canceling agent speech');
-                window.speechSynthesis.cancel();
-                isSpeakingRef.current = false;
-                bargedInRef.current = true;
-                setStatus('listening');
-            }
+            // ═══ IGNORE results while agent is speaking ═══
+            // The mic picks up TTS audio and processes it as speech.
+            // This caused a loop: TTS → mic echo → barge-in → process echo → repeat → loop
+            // User can skip TTS with the ⏭ button instead.
+            if (isSpeakingRef.current) return;
 
             clearTimeout(rePromptTimerRef.current);
 
@@ -186,11 +183,10 @@ const VoiceAgent = memo(function VoiceAgent({
                 const confidence = last[0].confidence || 0;
 
                 // ═══ NOISE FILTER ═══
-                // Ignore: too short, low confidence, or just filler sounds
-                if (t.length < 3) { log(`🔇 Too short: "${t}"`); return; }
-                if (confidence > 0 && confidence < 0.4) { log(`🔇 Low confidence (${(confidence * 100).toFixed(0)}%): "${t}"`); return; }
-                const NOISE_WORDS = ['hmm', 'hm', 'uh', 'uhh', 'ah', 'ahh', 'um', 'umm', 'oh', 'mm', 'ha', 'haan', 'ok'];
-                if (NOISE_WORDS.includes(t.toLowerCase())) { log(`🔇 Noise word: "${t}"`); return; }
+                if (t.length < 3) return;
+                if (confidence > 0 && confidence < 0.35) { log(`🔇 Low confidence: "${t}"`); return; }
+                const NOISE = ['hmm', 'hm', 'uh', 'uhh', 'ah', 'ahh', 'um', 'umm', 'oh', 'mm', 'ha', 'haan', 'ok', 'aah', 'hmm hmm'];
+                if (NOISE.includes(t.toLowerCase())) { log(`🔇 Noise: "${t}"`); return; }
 
                 log(`📝 "${t}" (${(confidence * 100).toFixed(0)}%)`);
                 lastInterimRef.current = '';
@@ -206,12 +202,12 @@ const VoiceAgent = memo(function VoiceAgent({
             } else {
                 lastInterimRef.current = last[0].transcript;
                 setInterimText(last[0].transcript);
-                if (!isSpeakingRef.current) setStatus('listening');
+                setStatus('listening');
 
                 clearTimeout(silenceTimerRef.current);
                 silenceTimerRef.current = setTimeout(() => {
                     const t = lastInterimRef.current?.trim();
-                    if (t && t.length > 2 && !processingRef.current) {
+                    if (t && t.length > 2 && !processingRef.current && !isSpeakingRef.current) {
                         log(`⏱️ Silence: "${t}"`);
                         handleTranscript(t);
                         lastInterimRef.current = '';
