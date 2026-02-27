@@ -183,9 +183,16 @@ const VoiceAgent = memo(function VoiceAgent({
 
             if (last.isFinal) {
                 const t = last[0].transcript.trim();
-                if (t.length < 2) return;
+                const confidence = last[0].confidence || 0;
 
-                log(`📝 "${t}"`);
+                // ═══ NOISE FILTER ═══
+                // Ignore: too short, low confidence, or just filler sounds
+                if (t.length < 3) { log(`🔇 Too short: "${t}"`); return; }
+                if (confidence > 0 && confidence < 0.4) { log(`🔇 Low confidence (${(confidence * 100).toFixed(0)}%): "${t}"`); return; }
+                const NOISE_WORDS = ['hmm', 'hm', 'uh', 'uhh', 'ah', 'ahh', 'um', 'umm', 'oh', 'mm', 'ha', 'haan', 'ok'];
+                if (NOISE_WORDS.includes(t.toLowerCase())) { log(`🔇 Noise word: "${t}"`); return; }
+
+                log(`📝 "${t}" (${(confidence * 100).toFixed(0)}%)`);
                 lastInterimRef.current = '';
                 setInterimText('');
                 clearTimeout(silenceTimerRef.current);
@@ -260,6 +267,16 @@ const VoiceAgent = memo(function VoiceAgent({
 
         const L = langRef.current;
         const lower = transcript.toLowerCase();
+
+        // Helper: get current page/screen guidance for repeating on useless input
+        const getCurrentGuidance = (lang) => {
+            const sg = SCREEN_GUIDANCE[screenRef.current];
+            if (sg) return (lang === 'hi' ? 'फिर से बताता हूँ। ' : 'Let me repeat. ') + (sg[lang] || sg.en);
+            const pg = getPageGuidance(window.location.pathname, lang);
+            if (pg) return (lang === 'hi' ? 'फिर से बताता हूँ। ' : 'Let me repeat. ') + pg;
+            return getResponse('not_understood', lang);
+        };
+
 
         // Helper: speak and check barge-in
         const say = async (text) => {
@@ -452,10 +469,17 @@ const VoiceAgent = memo(function VoiceAgent({
                 }
             } catch (err) {
                 log(`❌ Gemini: ${err.message}`);
-                if (!bargedInRef.current) await say(getResponse('not_understood', L));
+                if (!bargedInRef.current) {
+                    // Repeat page guidance instead of generic "maph kijiye"
+                    const pageHelp = getCurrentGuidance(L);
+                    await say(pageHelp);
+                }
             }
         } else {
-            if (!bargedInRef.current) await say(getResponse('not_understood', L));
+            if (!bargedInRef.current) {
+                const pageHelp = getCurrentGuidance(L);
+                await say(pageHelp);
+            }
         }
 
         done();
