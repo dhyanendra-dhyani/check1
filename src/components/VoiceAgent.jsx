@@ -1,22 +1,32 @@
 /**
  * ═══════════════════════════════════════════════════════════
- * VoiceAgent v13 — Reliable Listening + Pending Queue Barge-In
+ * VoiceAgent v14 — Production-Quality Voice Assistant
  *
- * FIX: v12 broke listening by being too aggressive with barge-in.
- * The `|| processingRef.current` in the barge-in check caused
- * false positives (mic picks up TTS echo → triggers barge-in
- * during processing → chaos).
+ * ROOT CAUSE OF BARGE-IN NOT WORKING:
+ * Web SpeechRecognition picks up TTS audio through the mic
+ * and processes it as the user speaking. This causes:
+ * - False transcripts during agent speech
+ * - No real barge-in (recognition is disabled on most browsers
+ *   by default when TTS is active anyway)
  *
- * NEW APPROACH:
- *   - Barge-in ONLY when `isSpeakingRef.current` (agent is talking)
- *   - Cancel TTS immediately on barge-in ✓
- *   - If transcript arrives while processingRef is true → queue it
- *   - After current processing finishes → process queued transcript
- *   - This gives reliable listening + real barge-in
+ * SOLUTION: Pause STT when TTS starts, restart immediately when
+ * user speaks. Use a "barge-in detection window" — keep STT
+ * running but with a very tight energy threshold.
  *
- * ALSO:
- *   - Route/screen change still cancels old TTS + speaks new page
- *   - Transition phrases on page change
+ * ACTUALLY: The real WebSpeech API fix is:
+ * 1. Stop recognition when TTS starts
+ * 2. Monitor for onaudiostart on a parallel recognition instance
+ * 3. Or: use onspeechstart to detect user speech during TTS
+ *
+ * PRACTICAL APPROACH (works on Chrome/Edge):
+ * - Single recognition, continuous mode
+ * - During TTS: if we get final transcript with length > 3 chars,
+ *   it's real barge-in (TTS echo is usually < 3 chars or matches
+ *   what we're saying)
+ * - Cancel TTS + process transcript
+ *
+ * ALSO: Post-auth intent routing — store what user wanted before
+ * auth, navigate there after login succeeds.
  * ═══════════════════════════════════════════════════════════
  */
 
@@ -40,22 +50,22 @@ const SPEECH_LANGS = {
 
 const SCREEN_GUIDANCE = {
     'citizen-auth': {
-        hi: 'लॉगिन पेज आ गया। तीन बटन हैं — अंगूठा लगाइए, आँख स्कैन कराइए, या OTP डालिए। सबसे आसान अंगूठा है — बस लगाइए। बोलें "अंगूठा", "आँख", या "OTP"।',
-        en: 'Login page is ready. Three options — Thumbprint, Iris scan, or OTP. Thumbprint is easiest. Say "thumb", "iris", or "OTP".',
+        hi: 'लॉगिन के लिए तीन विकल्प हैं — अंगूठा लगाइए, आँख स्कैन कराइए, या OTP डालिए। अंगूठा सबसे आसान है। बोलें "अंगूठा", "आँख", या "OTP"।',
+        en: 'Three login options — Thumbprint, Iris scan, or OTP. Thumbprint is easiest. Say "thumb", "iris", or "OTP".',
     },
     'citizen-dashboard': {
-        hi: 'डैशबोर्ड खुल गया! ऊपर बकाया बिल, बीच में शिकायतें, नीचे अतिरिक्त सेवाएं। बोलें क्या करना है?',
-        en: 'Dashboard open! Pending bills, complaints, extra services. What would you like to do?',
+        hi: 'आपका डैशबोर्ड खुल गया। यहाँ बकाया बिल, शिकायतें, और सेवाएं हैं। बोलें क्या करना है।',
+        en: 'Dashboard is open. Bills, complaints, and services. What would you like to do?',
     },
     guest: {
-        hi: 'ठीक है! बताइए कौन सा बिल भरना है — बिजली, पानी, या गैस? शिकायत भी दर्ज कर सकते हैं।',
+        hi: 'कौन सा बिल भरना है — बिजली, पानी, या गैस? शिकायत भी दर्ज कर सकते हैं।',
         en: 'Which bill — electricity, water, or gas? You can also file a complaint.',
     },
 };
 
-const TRANSITION = {
-    hi: 'लगता है आप आगे आ गए हैं। ',
-    en: 'Looks like you moved ahead. ',
+const TRANSITION_PHRASE = {
+    hi: 'ठीक है, ',
+    en: 'Alright, ',
 };
 
 const VoiceAgent = memo(function VoiceAgent({
@@ -68,6 +78,7 @@ const VoiceAgent = memo(function VoiceAgent({
     const [lastReply, setLastReply] = useState('');
     const [interimText, setInterimText] = useState('');
 
+    // Core refs
     const isActiveRef = useRef(false);
     const isSpeakingRef = useRef(false);
     const recognitionRef = useRef(null);
@@ -75,7 +86,7 @@ const VoiceAgent = memo(function VoiceAgent({
     const screenRef = useRef(screen);
     const processingRef = useRef(false);
     const bargedInRef = useRef(false);
-    const pendingTranscriptRef = useRef(null);  // queued transcript from barge-in
+    const pendingTranscriptRef = useRef(null);
     const silenceTimerRef = useRef(null);
     const lastInterimRef = useRef('');
     const lastRouteRef = useRef('');
@@ -84,6 +95,7 @@ const VoiceAgent = memo(function VoiceAgent({
     const convStateRef = useRef(CONV_STATES.INITIAL);
     const rePromptTimerRef = useRef(null);
     const rePromptCountRef = useRef(0);
+    const postAuthIntentRef = useRef(null); // what to do after citizen login
 
     const location = useLocation();
 
@@ -95,25 +107,71 @@ const VoiceAgent = memo(function VoiceAgent({
         addLog?.(msg);
     }, [addLog]);
 
-    // ── TTS ──────────────────────────────────────────
+    // ══════════════════════════════════════════════════
+    // TTS — Pause STT during speech, restart immediately
+    // ══════════════════════════════════════════════════
+
     const ttsSpeak = useCallback((text, langCode) => {
         return new Promise((resolve) => {
             if (!window.speechSynthesis || !text) { resolve(); return; }
+
+            // Cancel any ongoing speech
             window.speechSynthesis.cancel();
+
+            // PAUSE STT during TTS to prevent mic picking up TTS audio
+            // But keep recognition object alive — just abort the session
+            try { recognitionRef.current?.abort(); } catch { }
+
             const u = new SpeechSynthesisUtterance(text);
             u.lang = SPEECH_LANGS[langCode] || 'hi-IN';
             u.rate = 1.05; u.pitch = 1; u.volume = 1;
+
+            // Try to find a matching voice
             const voices = window.speechSynthesis.getVoices();
-            const v = voices.find(v => v.lang === u.lang) || voices.find(v => v.lang.startsWith(langCode));
+            const v = voices.find(v => v.lang === u.lang) ||
+                voices.find(v => v.lang.startsWith(langCode)) ||
+                voices[0];
             if (v) u.voice = v;
-            u.onend = () => { isSpeakingRef.current = false; resolve(); };
-            u.onerror = () => { isSpeakingRef.current = false; resolve(); };
+
+            u.onend = () => {
+                isSpeakingRef.current = false;
+                // RESUME STT after TTS finishes — wait 250ms to avoid echo
+                setTimeout(() => {
+                    if (isActiveRef.current && !bargedInRef.current) {
+                        restartRecognition();
+                        setStatus('listening');
+                    }
+                }, 250);
+                resolve();
+            };
+
+            u.onerror = () => {
+                isSpeakingRef.current = false;
+                setTimeout(() => {
+                    if (isActiveRef.current) {
+                        restartRecognition();
+                        setStatus('listening');
+                    }
+                }, 250);
+                resolve();
+            };
+
+            // Detect if user starts speaking DURING TTS → barge-in
+            u.onboundary = () => {
+                // onboundary fires for each word — if we have a pending barge-in, stop
+                if (bargedInRef.current) {
+                    window.speechSynthesis.cancel();
+                }
+            };
+
             isSpeakingRef.current = true;
+            bargedInRef.current = false;
             setStatus('speaking');
             window.speechSynthesis.speak(u);
         });
     }, []);
 
+    // Queued TTS (for streaming, checks barge-in between sentences)
     const queueTTS = useCallback((text, langCode) => {
         return new Promise((resolve) => {
             if (!window.speechSynthesis || !text || bargedInRef.current) { resolve(); return; }
@@ -128,6 +186,122 @@ const VoiceAgent = memo(function VoiceAgent({
             window.speechSynthesis.speak(u);
         });
     }, []);
+
+    // ══════════════════════════════════════════════════
+    // RECOGNITION — restart after TTS
+    // ══════════════════════════════════════════════════
+
+    const restartRecognition = useCallback(() => {
+        if (!isActiveRef.current) return;
+        try { recognitionRef.current?.abort(); } catch { }
+        setTimeout(() => startRecognition(), 100);
+    }, []);
+
+    const startRecognition = useCallback(() => {
+        const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (!SR || !isActiveRef.current) return;
+        try { recognitionRef.current?.abort(); } catch { }
+
+        const r = new SR();
+        r.lang = SPEECH_LANGS[langRef.current] || 'hi-IN';
+        r.continuous = true;
+        r.interimResults = true;
+        r.maxAlternatives = 1;
+
+        r.onstart = () => {
+            restartCountRef.current = 0;
+            if (!isSpeakingRef.current && isActiveRef.current) setStatus('listening');
+        };
+
+        r.onresult = (e) => {
+            const last = e.results[e.results.length - 1];
+            const transcript = last[0].transcript.trim();
+
+            // ═══════════════════════════════════════════
+            // BARGE-IN DETECTION
+            // If we're speaking AND user transcript is substantial
+            // (> 2 chars, not just a noise), treat as barge-in
+            // ═══════════════════════════════════════════
+            if (isSpeakingRef.current && transcript.length > 2) {
+                log(`🔇 BARGE-IN: "${transcript}"`);
+                window.speechSynthesis.cancel();
+                isSpeakingRef.current = false;
+                bargedInRef.current = true;
+                setStatus('listening');
+            }
+
+            clearTimeout(rePromptTimerRef.current);
+
+            if (last.isFinal) {
+                if (transcript.length < 2) return;
+                log(`📝 Final: "${transcript}"`);
+                lastInterimRef.current = '';
+                setInterimText('');
+                clearTimeout(silenceTimerRef.current);
+
+                if (processingRef.current) {
+                    // Queue it — process after current finishes
+                    log('📥 Queued transcript');
+                    pendingTranscriptRef.current = transcript;
+                } else {
+                    handleTranscript(transcript);
+                }
+            } else {
+                if (transcript.length > 1) {
+                    lastInterimRef.current = transcript;
+                    setInterimText(transcript);
+                    if (!isSpeakingRef.current) setStatus('listening');
+                }
+
+                clearTimeout(silenceTimerRef.current);
+                silenceTimerRef.current = setTimeout(() => {
+                    const t = lastInterimRef.current?.trim();
+                    if (t && t.length > 2 && !processingRef.current && !isSpeakingRef.current) {
+                        log(`⏱️ Silence: "${t}"`);
+                        handleTranscript(t);
+                        lastInterimRef.current = '';
+                        setInterimText('');
+                    }
+                }, 1400);
+            }
+        };
+
+        r.onspeechstart = () => {
+            // User started speaking — if agent is speaking, this is barge-in
+            if (isSpeakingRef.current) {
+                log('🔇 onspeechstart barge-in');
+                window.speechSynthesis.cancel();
+                isSpeakingRef.current = false;
+                bargedInRef.current = true;
+                setStatus('listening');
+            }
+        };
+
+        r.onerror = (e) => {
+            if (['no-speech', 'aborted'].includes(e.error)) {
+                if (isActiveRef.current && !isSpeakingRef.current) {
+                    restartCountRef.current++;
+                    if (restartCountRef.current < 50) setTimeout(() => startRecognition(), Math.min(300 * restartCountRef.current, 2000));
+                }
+                return;
+            }
+            if (isActiveRef.current && restartCountRef.current < 50) {
+                restartCountRef.current++;
+                setTimeout(() => startRecognition(), 1000);
+            }
+        };
+
+        r.onend = () => {
+            // Only auto-restart if not in TTS (TTS end will restart it)
+            if (isActiveRef.current && !isSpeakingRef.current && restartCountRef.current < 50) {
+                restartCountRef.current++;
+                setTimeout(() => startRecognition(), 200);
+            }
+        };
+
+        recognitionRef.current = r;
+        try { r.start(); } catch { if (isActiveRef.current) setTimeout(() => startRecognition(), 500); }
+    }, [log]);
 
     // ═══ RE-PROMPT ═══════════════════════════════════
 
@@ -147,107 +321,13 @@ const VoiceAgent = memo(function VoiceAgent({
             setLastReply(text);
             await ttsSpeak(text, langRef.current);
             rePromptCountRef.current++;
-            if (isActiveRef.current && rePromptCountRef.current < 3) {
-                setStatus('listening');
-                startRePromptTimer();
-            }
-        }, 12000);
+            if (isActiveRef.current && rePromptCountRef.current < 3) startRePromptTimer();
+        }, 11000);
     }, [log, ttsSpeak]);
 
-    // ═══ RECOGNITION ═════════════════════════════════
-
-    const startRecognition = useCallback(() => {
-        const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-        if (!SR || !isActiveRef.current) return;
-        try { recognitionRef.current?.abort(); } catch { }
-
-        const r = new SR();
-        r.lang = SPEECH_LANGS[langRef.current] || 'hi-IN';
-        r.continuous = true;
-        r.interimResults = true;
-        r.maxAlternatives = 1;
-
-        r.onstart = () => {
-            log('🎧 Listening...');
-            restartCountRef.current = 0;
-            if (!isSpeakingRef.current) setStatus('listening');
-        };
-
-        r.onresult = (e) => {
-            const last = e.results[e.results.length - 1];
-
-            // ═══ BARGE-IN: Only when agent is SPEAKING ═══
-            // (Not during processing — that caused false positives)
-            if (isSpeakingRef.current) {
-                log('🔇 Barge-in — stopping agent speech');
-                window.speechSynthesis.cancel();
-                isSpeakingRef.current = false;
-                bargedInRef.current = true;
-                setStatus('listening');
-            }
-
-            clearTimeout(rePromptTimerRef.current);
-
-            if (last.isFinal) {
-                const t = last[0].transcript.trim();
-                if (t.length < 2) return;
-
-                log(`📝 Final: "${t}"`);
-                lastInterimRef.current = '';
-                setInterimText('');
-                clearTimeout(silenceTimerRef.current);
-
-                if (processingRef.current) {
-                    // ═══ QUEUE: Store for after current processing finishes ═══
-                    log(`📥 Queued (processing busy): "${t}"`);
-                    pendingTranscriptRef.current = t;
-                } else {
-                    handleTranscript(t);
-                }
-            } else {
-                lastInterimRef.current = last[0].transcript;
-                setInterimText(last[0].transcript);
-                if (!isSpeakingRef.current) setStatus('listening');
-
-                clearTimeout(silenceTimerRef.current);
-                silenceTimerRef.current = setTimeout(() => {
-                    const t = lastInterimRef.current?.trim();
-                    if (t && t.length > 2 && !processingRef.current) {
-                        log(`⏱️ Silence timeout: "${t}"`);
-                        handleTranscript(t);
-                        lastInterimRef.current = '';
-                        setInterimText('');
-                    }
-                }, 1500);
-            }
-        };
-
-        r.onerror = (e) => {
-            if (['no-speech', 'aborted'].includes(e.error)) {
-                if (isActiveRef.current) {
-                    restartCountRef.current++;
-                    if (restartCountRef.current < 50) setTimeout(() => startRecognition(), Math.min(500 * restartCountRef.current, 3000));
-                }
-                return;
-            }
-            if (isActiveRef.current && restartCountRef.current < 50) {
-                restartCountRef.current++;
-                setTimeout(() => startRecognition(), 1500);
-            }
-        };
-
-        r.onend = () => {
-            if (isActiveRef.current && restartCountRef.current < 50) {
-                restartCountRef.current++;
-                setTimeout(() => startRecognition(), 300);
-            }
-        };
-
-        recognitionRef.current = r;
-        try { r.start(); } catch { if (isActiveRef.current) setTimeout(() => startRecognition(), 1000); }
-    }, [log]);
-
-    // ═══ KNOWLEDGE-BASE PROCESSING ═══════════════════
+    // ══════════════════════════════════════════════════
+    // HANDLE TRANSCRIPT — Main intelligence
+    // ══════════════════════════════════════════════════
 
     const handleTranscript = useCallback(async (transcript) => {
         if (processingRef.current) return;
@@ -265,167 +345,201 @@ const VoiceAgent = memo(function VoiceAgent({
         const L = langRef.current;
         const lower = transcript.toLowerCase();
 
-        // ── STOP ──
+        const say = async (text) => {
+            if (!text || bargedInRef.current) return;
+            setLastReply(text);
+            await ttsSpeak(text, L);
+        };
+
+        const finalize = () => {
+            processingRef.current = false;
+            isSpeakingRef.current = false;
+            // Check for queued transcript from barge-in
+            const pending = pendingTranscriptRef.current;
+            if (pending && isActiveRef.current) {
+                pendingTranscriptRef.current = null;
+                log(`📤 Processing pending: "${pending}"`);
+                setTimeout(() => handleTranscript(pending), 50);
+                return;
+            }
+            if (isActiveRef.current) setStatus('listening');
+        };
+
+        // ── STOP ──────────────────────────────────────
         if (matchesKeywords(transcript, STOP_KEYWORDS)) {
-            const r = getResponse('stopping', L);
-            setLastReply(r);
-            await ttsSpeak(r, L);
+            await say(getResponse('stopping', L));
             deactivateVoice();
-            finishProcessing();
+            finalize();
             return;
         }
 
-        // ── BACK ──
+        // ── BACK ──────────────────────────────────────
         if (matchesKeywords(transcript, BACK_KEYWORDS)) {
-            log('⬅️ Back');
             navigate(-1);
-            finishProcessing();
+            finalize();
             return;
         }
 
-        // ── HOME ──
+        // ── HOME ──────────────────────────────────────
         if (matchesKeywords(transcript, HOME_KEYWORDS)) {
             navigate('/');
-            finishProcessing();
+            finalize();
             return;
         }
 
-        // ── AUTH ACTIONS (on citizen-auth screen) ──
+        // ── AUTH SCREEN COMMANDS ───────────────────────
         if (screenRef.current === 'citizen-auth') {
-            if (lower.includes('angootha') || lower.includes('thumb') || lower.includes('finger') || lower.includes('अंगूठा') || lower.includes('ungali')) {
-                log('👆 Thumb');
-                const r = L === 'hi'
-                    ? 'ठीक है, नीचे "Thumb" बटन दबाएं। फिर दाईं तरफ बायोमेट्रिक मशीन पर अंगूठा रखें। 2-3 सेकंड में हो जाएगा।'
-                    : 'Press "Thumb" button below. Place your thumb on the scanner. 2-3 seconds.';
-                setLastReply(r);
-                if (!bargedInRef.current) await ttsSpeak(r, L);
-                finishProcessing();
-                return;
+            if (lower.includes('angootha') || lower.includes('thumb') || lower.includes('अंगूठा') || lower.includes('ungali') || lower.includes('finger')) {
+                await say(L === 'hi'
+                    ? 'नीचे "Thumb" बटन दबाएं और बायोमेट्रिक मशीन पर अंगूठा रखें। 2-3 सेकंड में स्कैन हो जाएगा।'
+                    : 'Press "Thumb" below and place your finger on the scanner. Done in 2-3 seconds.');
+                finalize(); return;
             }
-            if (lower.includes('aankh') || lower.includes('iris') || lower.includes('eye') || lower.includes('आँख') || lower.includes('ankh')) {
-                log('👁️ Iris');
-                const r = L === 'hi'
-                    ? 'ठीक है, "Iris" बटन दबाएं। कैमरे में देखें, आँख खुली रखें।'
-                    : 'Press "Iris" button. Look at the camera.';
-                setLastReply(r);
-                if (!bargedInRef.current) await ttsSpeak(r, L);
-                finishProcessing();
-                return;
+            if (lower.includes('aankh') || lower.includes('iris') || lower.includes('आँख') || lower.includes('eye') || lower.includes('ankh')) {
+                await say(L === 'hi'
+                    ? '"Iris" बटन दबाएं और कैमरे में देखें, आँख खुली रखें।'
+                    : 'Press "Iris" and look at the camera with your eye open.');
+                finalize(); return;
             }
-            if (lower.includes('otp') || lower.includes('mobile') || lower.includes('ओटीपी') || lower.includes('मोबाइल')) {
-                log('📱 OTP');
-                const r = L === 'hi'
-                    ? '"OTP" बटन दबाएं। मोबाइल नंबर डालें। डेमो OTP: 482916।'
-                    : 'Press "OTP" button. Enter mobile number. Demo OTP: 482916.';
-                setLastReply(r);
-                if (!bargedInRef.current) await ttsSpeak(r, L);
-                finishProcessing();
-                return;
+            if (lower.includes('otp') || lower.includes('ओटीपी') || lower.includes('mobile') || lower.includes('मोबाइल')) {
+                await say(L === 'hi'
+                    ? '"OTP" बटन दबाएं। मोबाइल नंबर डालें। डेमो OTP है 482916।'
+                    : 'Press "OTP". Enter your mobile number. Demo OTP is 482916.');
+                finalize(); return;
             }
         }
 
-        // ── CITIZEN-REQUIRED FEATURES ──
-        if (matchesKeywords(transcript, CITIZEN_REQUIRED_KEYWORDS)) {
-            log('🔐 Citizen-required');
-            let responseKey = 'citizen_required_redirect';
-            if (lower.includes('naam') || lower.includes('name') || lower.includes('नाम')) responseKey = 'citizen_required_naam';
-            else if (lower.includes('pipeline') || lower.includes('gas line') || lower.includes('पाइपलाइन')) responseKey = 'citizen_required_pipeline';
-            else if (lower.includes('connection') || lower.includes('naya') || lower.includes('नया')) responseKey = 'citizen_required_connection';
+        // ── CITIZEN-REQUIRED FEATURES → Smart redirect ─
+        // Detect intent, store it, redirect to auth, after login go there
+        const hasNaam = lower.includes('naam') || lower.includes('name') || lower.includes('नाम बदल');
+        const hasPipeline = lower.includes('pipeline') || lower.includes('gas line') || lower.includes('पाइपलाइन');
+        const hasConnection = (lower.includes('naya') || lower.includes('नया')) && (lower.includes('connection') || lower.includes('कनेक्शन'));
+        const hasCert = lower.includes('certificate') || lower.includes('pramanpatra') || lower.includes('प्रमाणपत्र');
+        const hasDashboard = lower.includes('dashboard') || lower.includes('history') || lower.includes('record') || lower.includes('इतिहास');
+        const hasSubsidy = lower.includes('subsidy') || lower.includes('सब्सिडी');
 
-            const r = getResponse(responseKey, L);
-            setLastReply(r);
-            if (!bargedInRef.current) await ttsSpeak(r, L);
+        if (hasNaam || hasPipeline || hasConnection || hasCert || hasDashboard || hasSubsidy ||
+            matchesKeywords(transcript, CITIZEN_REQUIRED_KEYWORDS)) {
+
+            log('🔐 Citizen-required feature, storing intent');
+
+            // Store post-auth intent for routing after login
+            if (hasNaam) postAuthIntentRef.current = { type: 'naam_change' };
+            else if (hasPipeline) postAuthIntentRef.current = { type: 'pipeline' };
+            else if (hasConnection) postAuthIntentRef.current = { type: 'new_connection' };
+            else if (hasCert) postAuthIntentRef.current = { type: 'certificate' };
+            else postAuthIntentRef.current = { type: 'dashboard' };
+
+            let msg = '';
+            if (hasNaam) {
+                msg = L === 'hi'
+                    ? 'अच्छा, नाम बदलवाना है! इसके लिए आधार से लॉगिन करना होगा। अंगूठा लगाइए या OTP डालिए — बस 2-3 सेकंड में। मैं लॉगिन पेज पर ले जा रहा हूँ।'
+                    : 'Name change! You need Aadhaar login for this. Thumbprint or OTP — just 2-3 seconds. Taking you to login.';
+            } else if (hasPipeline) {
+                msg = L === 'hi'
+                    ? 'गैस पाइपलाइन के लिए आधार लॉगिन ज़रूरी है। अपने नाम से कराना है तो अंगूठा लगाइए — बहुत आसान है।'
+                    : 'Gas pipeline needs Aadhaar login. Just thumbprint if it\'s in your name — very easy.';
+            } else if (hasConnection) {
+                msg = L === 'hi'
+                    ? 'नया कनेक्शन लगवाने के लिए आधार लॉगिन चाहिए। अंगूठा लगाइए।'
+                    : 'New connection needs Aadhaar login. Place your thumb.';
+            } else {
+                msg = L === 'hi'
+                    ? 'इस सेवा के लिए आधार से लॉगिन करना होगा। मैं लॉगिन पेज पर ले जा रहा हूँ।'
+                    : 'This service needs Aadhaar login. Taking you to the login page.';
+            }
+
+            await say(msg);
             convStateRef.current = CONV_STATES.CITIZEN_AUTH;
             setScreen('citizen-auth');
-            finishProcessing();
+            finalize();
             return;
         }
 
-        // ── COMMON Q&A ──
+        // ── COMMON Q&A (instant) ──────────────────────
         const qa = findCommonAnswer(transcript, L);
         if (qa) {
-            log('📚 Q&A');
-            setLastReply(qa);
-            if (!bargedInRef.current) await ttsSpeak(qa, L);
-            finishProcessing();
+            log('📚 Q&A match');
+            await say(qa);
+            finalize();
             return;
         }
 
-        // ═══ STATE MACHINE ═══════════════════════════
+        // ══════════════════════════════════════════════
+        // STATE MACHINE
+        // ══════════════════════════════════════════════
 
         const state = convStateRef.current;
 
         if (state === CONV_STATES.WAIT_PATH || state === CONV_STATES.INITIAL) {
 
+            // Citizen path
             if (matchesKeywords(transcript, CITIZEN_KEYWORDS)) {
-                log('→ Citizen');
+                log('→ Citizen path');
                 convStateRef.current = CONV_STATES.CITIZEN_AUTH;
-                const r = getResponse('citizen_chosen', L);
-                setLastReply(r);
-                if (!bargedInRef.current) await ttsSpeak(r, L);
+                await say(getResponse('citizen_chosen', L));
                 setScreen('citizen-auth');
-                finishProcessing();
+                finalize();
                 return;
             }
 
+            // Guest path
             if (matchesKeywords(transcript, GUEST_KEYWORDS)) {
-                log('→ Guest');
+                log('→ Guest path');
                 convStateRef.current = CONV_STATES.GUEST_HOME;
                 setScreen('guest');
                 navigate('/');
-                const r = getResponse('guest_chosen', L);
-                setLastReply(r);
-                if (!bargedInRef.current) await ttsSpeak(r, L);
-                finishProcessing();
+                await say(getResponse('guest_chosen', L));
+                finalize();
                 return;
             }
 
+            // Direct bill mention → guest path automatically
             const billType = detectBillType(transcript);
             if (billType) {
                 log(`→ Direct bill: ${billType}`);
                 convStateRef.current = CONV_STATES.BILL_INPUT;
                 setScreen('guest');
                 navigate(`/bill/${billType}`);
-                finishProcessing();
+                finalize();
                 return;
             }
 
+            // Direct complaint
             if (matchesKeywords(transcript, COMPLAINT_KEYWORDS)) {
                 log('→ Direct complaint');
                 convStateRef.current = CONV_STATES.COMPLAINT_CAT;
                 setScreen('guest');
                 navigate('/complaint');
-                finishProcessing();
+                finalize();
                 return;
             }
         }
 
-        // ── Any state: bill/complaint nav ──
+        // Any state: bill/complaint
         const billType = detectBillType(transcript);
         if (billType) {
             log(`→ Bill: ${billType}`);
-            convStateRef.current = CONV_STATES.BILL_INPUT;
             navigate(`/bill/${billType}`);
-            finishProcessing();
+            finalize();
             return;
         }
 
         if (matchesKeywords(transcript, COMPLAINT_KEYWORDS)) {
             log('→ Complaint');
-            convStateRef.current = CONV_STATES.COMPLAINT_CAT;
             navigate('/complaint');
-            finishProcessing();
+            finalize();
             return;
         }
 
-        // ── FALLBACK: Gemini ──
+        // ── GEMINI FALLBACK ────────────────────────────
         if (hasApiKeys()) {
             try {
                 let fullReply = '';
                 let firstSent = false;
 
                 const result = await streamGeminiResponse(
-                    transcript, L, `${screenRef.current} | ${window.location.pathname}`,
+                    transcript, L, `screen:${screenRef.current} path:${window.location.pathname}`,
                     async (sentence, idx) => {
                         if (bargedInRef.current) return;
                         fullReply += (idx > 0 ? ' ' : '') + sentence;
@@ -436,59 +550,35 @@ const VoiceAgent = memo(function VoiceAgent({
                 );
 
                 if (!firstSent && result.reply && !bargedInRef.current) {
-                    setLastReply(result.reply);
-                    await ttsSpeak(result.reply, L);
+                    await say(result.reply);
                 }
 
-                if (result.intent === 'navigate' && result.action_key) {
-                    const routes = { electricity: '/bill/electricity', water: '/bill/water', gas: '/bill/gas', complaint: '/complaint', home: '/' };
-                    if (routes[result.action_key]) navigate(routes[result.action_key]);
-                } else if (result.intent === 'set_screen') {
-                    if (result.action_key === 'quick_pay') { setScreen('guest'); navigate('/'); }
-                    else if (result.action_key === 'citizen_login') setScreen('citizen-auth');
-                } else if (result.intent === 'go_back') navigate(-1);
+                if (!bargedInRef.current && result.intent) {
+                    if (result.intent === 'navigate' && result.action_key) {
+                        const routes = { electricity: '/bill/electricity', water: '/bill/water', gas: '/bill/gas', complaint: '/complaint', home: '/' };
+                        if (routes[result.action_key]) navigate(routes[result.action_key]);
+                    } else if (result.intent === 'set_screen') {
+                        if (result.action_key === 'quick_pay') { setScreen('guest'); navigate('/'); }
+                        else if (result.action_key === 'citizen_login') setScreen('citizen-auth');
+                    } else if (result.intent === 'go_back') navigate(-1);
+                }
 
             } catch (err) {
                 log(`❌ Gemini: ${err.message}`);
-                if (!bargedInRef.current) {
-                    const r = getResponse('not_understood', L);
-                    setLastReply(r);
-                    await ttsSpeak(r, L);
-                }
+                if (!bargedInRef.current) await say(getResponse('not_understood', L));
             }
         } else {
-            if (!bargedInRef.current) {
-                const r = getResponse('not_understood', L);
-                setLastReply(r);
-                await ttsSpeak(r, L);
-            }
+            if (!bargedInRef.current) await say(getResponse('not_understood', L));
         }
 
-        finishProcessing();
+        finalize();
     }, [navigate, setScreen, log, ttsSpeak, queueTTS]);
 
-    // ═══ FINISH PROCESSING + CHECK PENDING ═══════════
-
-    const finishProcessing = useCallback(() => {
-        isSpeakingRef.current = false;
-        processingRef.current = false;
-
-        // ═══ CHECK FOR QUEUED BARGE-IN TRANSCRIPT ═══
-        const pending = pendingTranscriptRef.current;
-        if (pending) {
-            pendingTranscriptRef.current = null;
-            log(`📤 Processing queued transcript: "${pending}"`);
-            // Process on next tick to avoid stack issues
-            setTimeout(() => {
-                if (isActiveRef.current) handleTranscript(pending);
-            }, 50);
-            return;
-        }
-
-        if (isActiveRef.current && !bargedInRef.current) setStatus('listening');
-    }, [log]);
-
-    // ═══ SCREEN CHANGE → CANCEL + SPEAK NEW ═════════
+    // ══════════════════════════════════════════════════
+    // POST-AUTH ROUTING — after citizen login succeeds
+    // ══════════════════════════════════════════════════
+    // App.jsx calls handleAuth which sets screen='citizen-dashboard'
+    // We detect that and check postAuthIntentRef
 
     useEffect(() => {
         if (!isActiveRef.current || !voiceMode) return;
@@ -500,59 +590,92 @@ const VoiceAgent = memo(function VoiceAgent({
 
         if (!prevScreen || screen === 'idle') return;
 
-        // Cancel old speech about previous screen
+        // Cancel whatever agent was saying about old screen
         window.speechSynthesis?.cancel();
         isSpeakingRef.current = false;
-        bargedInRef.current = true; // skip remaining old TTS
+        bargedInRef.current = true;
 
-        const g = SCREEN_GUIDANCE[screen];
-        if (g) {
-            const transition = TRANSITION[langRef.current] || TRANSITION.en;
-            const guidance = g[langRef.current] || g.en;
+        const speakForScreen = async () => {
+            if (!isActiveRef.current) return;
+            bargedInRef.current = false;
+
+            // Post-auth: if user had an intent before login, guide them there
+            if (screen === 'citizen-dashboard' && postAuthIntentRef.current) {
+                const intent = postAuthIntentRef.current;
+                postAuthIntentRef.current = null;
+
+                let msg = '';
+                const L = langRef.current;
+
+                if (intent.type === 'naam_change') {
+                    msg = L === 'hi'
+                        ? 'लॉगिन हो गया! अब नाम बदलने के लिए — डैशबोर्ड में नीचे "✏️ Name Change" बटन दबाएं।'
+                        : 'Logged in! For name change — press "✏️ Name Change" button below on the dashboard.';
+                } else if (intent.type === 'pipeline') {
+                    msg = L === 'hi'
+                        ? 'लॉगिन हो गया! गैस पाइपलाइन के लिए डैशबोर्ड में "Apply New Connection" देखें।'
+                        : 'Logged in! For gas pipeline, check "Apply New Connection" on the dashboard.';
+                } else if (intent.type === 'new_connection') {
+                    msg = L === 'hi'
+                        ? 'लॉगिन हो गया! नया कनेक्शन लगाने के लिए नीचे "🆕 Apply New Connection" बटन दबाएं।'
+                        : 'Logged in! Press "🆕 Apply New Connection" button below.';
+                } else if (intent.type === 'certificate') {
+                    msg = L === 'hi'
+                        ? 'लॉगिन हो गया! प्रमाणपत्र के लिए "📜 Print Certificate" बटन दबाएं।'
+                        : 'Logged in! Press "📜 Print Certificate" button.';
+                } else {
+                    const g = SCREEN_GUIDANCE['citizen-dashboard'];
+                    msg = g[L] || g.en;
+                }
+
+                log(`🎯 Post-auth intent: ${intent.type}`);
+                setLastReply(msg);
+                await ttsSpeak(msg, langRef.current);
+                if (isActiveRef.current) setStatus('listening');
+                return;
+            }
+
+            const g = SCREEN_GUIDANCE[screen];
+            if (g) {
+                const text = g[langRef.current] || g.en;
+                log(`📍 Screen guidance: ${screen}`);
+                setLastReply(text);
+                await ttsSpeak(text, langRef.current);
+                if (isActiveRef.current) setStatus('listening');
+            }
+        };
+
+        setTimeout(speakForScreen, 600);
+    }, [screen, voiceMode, log, ttsSpeak]);
+
+    // Route change → cancel old + announce new
+    useEffect(() => {
+        if (!isActiveRef.current || !voiceMode) return;
+        const currentPath = location.pathname;
+        if (currentPath === lastRouteRef.current) return;
+
+        const prevPath = lastRouteRef.current;
+        lastRouteRef.current = currentPath;
+        log(`📍 Route: ${prevPath} → ${currentPath}`);
+
+        // Cancel old speech
+        window.speechSynthesis?.cancel();
+        isSpeakingRef.current = false;
+        bargedInRef.current = true;
+
+        const guidance = getPageGuidance(currentPath, langRef.current);
+        if (guidance) {
+            const transition = prevPath ? (TRANSITION_PHRASE[langRef.current] || TRANSITION_PHRASE.en) : '';
             const fullText = transition + guidance;
 
             setTimeout(async () => {
                 if (isActiveRef.current) {
                     bargedInRef.current = false;
-                    log(`📍 Screen guidance: ${screen}`);
                     setLastReply(fullText);
                     await ttsSpeak(fullText, langRef.current);
                     if (isActiveRef.current) setStatus('listening');
                 }
-            }, 500);
-        }
-    }, [screen, voiceMode, log, ttsSpeak]);
-
-    // ═══ ROUTE CHANGE → CANCEL + SPEAK NEW ══════════
-
-    useEffect(() => {
-        if (!isActiveRef.current || !voiceMode) return;
-        const currentPath = location.pathname;
-
-        if (currentPath !== lastRouteRef.current) {
-            const prevPath = lastRouteRef.current;
-            lastRouteRef.current = currentPath;
-            log(`📍 Route: ${prevPath} → ${currentPath}`);
-
-            // Cancel old speech
-            window.speechSynthesis?.cancel();
-            isSpeakingRef.current = false;
-            bargedInRef.current = true;
-
-            const guidance = getPageGuidance(currentPath, langRef.current);
-            if (guidance) {
-                const transition = prevPath ? (TRANSITION[langRef.current] || TRANSITION.en) : '';
-                const fullText = transition + guidance;
-
-                setTimeout(async () => {
-                    if (isActiveRef.current) {
-                        bargedInRef.current = false;
-                        setLastReply(fullText);
-                        await ttsSpeak(fullText, langRef.current);
-                        if (isActiveRef.current) setStatus('listening');
-                    }
-                }, 400);
-            }
+            }, 400);
         }
     }, [location.pathname, voiceMode, log, ttsSpeak]);
 
@@ -566,12 +689,14 @@ const VoiceAgent = memo(function VoiceAgent({
         setLastReply('');
         setInterimText('');
         stopSpeaking();
+        window.speechSynthesis?.cancel();
         restartCountRef.current = 0;
         rePromptCountRef.current = 0;
         lastRouteRef.current = window.location.pathname;
         lastScreenRef.current = screen;
         convStateRef.current = CONV_STATES.WAIT_PATH;
         pendingTranscriptRef.current = null;
+        postAuthIntentRef.current = null;
         log('🟢 Activated');
 
         const greeting = getInitialGreeting(langRef.current);
@@ -580,7 +705,7 @@ const VoiceAgent = memo(function VoiceAgent({
         await ttsSpeak(greeting, langRef.current);
 
         if (isActiveRef.current) {
-            log('📢 Greeting done → listening');
+            log('📢 Listening');
             setStatus('listening');
             startRecognition();
             startRePromptTimer();
@@ -598,8 +723,9 @@ const VoiceAgent = memo(function VoiceAgent({
         processingRef.current = false;
         convStateRef.current = CONV_STATES.INITIAL;
         pendingTranscriptRef.current = null;
-        stopSpeaking();
+        postAuthIntentRef.current = null;
         window.speechSynthesis?.cancel();
+        stopSpeaking();
         clearTimeout(silenceTimerRef.current);
         clearTimeout(rePromptTimerRef.current);
         try { recognitionRef.current?.abort(); } catch { }
@@ -614,13 +740,14 @@ const VoiceAgent = memo(function VoiceAgent({
         }
     }, [voiceMode, screen, activateVoice, log]);
 
-    // Cleanup
     useEffect(() => {
         return () => {
             isActiveRef.current = false;
             try { recognitionRef.current?.abort(); } catch { }
             stopSpeaking();
+            window.speechSynthesis?.cancel();
             clearTimeout(rePromptTimerRef.current);
+            clearTimeout(silenceTimerRef.current);
         };
     }, []);
 
@@ -640,14 +767,20 @@ const VoiceAgent = memo(function VoiceAgent({
                             <>
                                 <div className="vo-pulse" />
                                 <span className="vo-bar-label">
-                                    {interimText ? `"${interimText}"` : (lang === 'hi' ? '🎧 बोलिए...' : '🎧 Speak...')}
+                                    {interimText
+                                        ? `"${interimText.substring(0, 60)}${interimText.length > 60 ? '...' : ''}"`
+                                        : (lang === 'hi' ? '🎧 बोलिए...' : '🎧 Speak...')}
                                 </span>
                             </>
                         )}
                         {status === 'processing' && (
                             <>
                                 <div className="vo-spinner" />
-                                <span className="vo-bar-label">{lang === 'hi' ? '🧠 समझ रहा हूँ...' : '🧠 Thinking...'}</span>
+                                <span className="vo-bar-label">
+                                    {lastTranscript
+                                        ? `"${lastTranscript.substring(0, 50)}..."`
+                                        : (lang === 'hi' ? '🧠 समझ रहा हूँ...' : '🧠 Thinking...')}
+                                </span>
                             </>
                         )}
                         {status === 'speaking' && (
@@ -658,15 +791,24 @@ const VoiceAgent = memo(function VoiceAgent({
                                     ))}
                                 </div>
                                 <span className="vo-bar-reply">
-                                    {lastReply?.substring(0, 100)}{lastReply?.length > 100 ? '...' : ''}
+                                    {lastReply?.substring(0, 90)}{lastReply?.length > 90 ? '...' : ''}
                                 </span>
                             </>
                         )}
                     </div>
-                    <button className="vo-bar-close"
+                    <button
+                        className="vo-bar-close"
+                        title={status === 'speaking' ? 'Skip' : 'Stop voice'}
                         onClick={status === 'speaking'
-                            ? () => { window.speechSynthesis?.cancel(); isSpeakingRef.current = false; bargedInRef.current = true; setStatus('listening'); }
-                            : deactivateVoice}>
+                            ? () => {
+                                window.speechSynthesis?.cancel();
+                                isSpeakingRef.current = false;
+                                bargedInRef.current = true;
+                                setStatus('listening');
+                                setTimeout(() => restartRecognition(), 200);
+                            }
+                            : deactivateVoice}
+                    >
                         {status === 'speaking' ? '⏭' : '✕'}
                     </button>
                 </div>
