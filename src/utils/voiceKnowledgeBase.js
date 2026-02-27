@@ -47,8 +47,8 @@ export const CONV_STATES = {
 
 // ── INITIAL GREETING ────────────────────────────────
 export const INITIAL_GREETINGS = {
-    hi: 'ठीक है! बताइए, क्या यह आपका अपना बिल है? अगर आधार कार्ड है तो अंगूठा लगाकर लॉगिन कर सकते हैं। या फिर किसी रिश्तेदार का बिल जमा करना है तो बिना लॉगिन भी हो जाएगा।',
-    en: 'Great! Tell me — is this your own bill? If you have Aadhaar, you can login with thumbprint. Or if you\'re paying someone else\'s bill, you can do it without login too.',
+    hi: 'नमस्ते! अपना बिल भरना है, या किसी और का?',
+    en: 'Hello! Paying your own bill, or someone else\'s?',
 };
 
 // ── ALL KEYWORD SETS ────────────────────────────────
