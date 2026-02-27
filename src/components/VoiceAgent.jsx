@@ -178,7 +178,8 @@ const VoiceAgent = memo(function VoiceAgent({
                 if (last.isFinal) {
                     const conf = last[0].confidence || 0;
                     const txt = last[0].transcript.trim();
-                    if (conf > 0.6 && txt.length > 5) {
+                    // Lowered threshold to catch short Hindi words like "bijli", "haan", "OTP"
+                    if (conf > 0.45 && txt.length >= 3) {
                         log(`🔇 Barge-in: "${txt}" (${(conf * 100).toFixed(0)}%)`);
                         window.speechSynthesis.cancel();
                         isSpeakingRef.current = false;
@@ -200,7 +201,7 @@ const VoiceAgent = memo(function VoiceAgent({
                 const confidence = last[0].confidence || 0;
 
                 // ═══ NOISE FILTER ═══
-                if (t.length < 3) return;
+                if (t.length < 2) return;
                 if (confidence > 0 && confidence < 0.35) { log(`🔇 Low confidence: "${t}"`); return; }
                 const NOISE = ['hmm', 'hm', 'uh', 'uhh', 'ah', 'ahh', 'um', 'umm', 'oh', 'mm', 'ha', 'haan', 'ok', 'aah', 'hmm hmm'];
                 if (NOISE.includes(t.toLowerCase())) { log(`🔇 Noise: "${t}"`); return; }
@@ -224,37 +225,26 @@ const VoiceAgent = memo(function VoiceAgent({
                 clearTimeout(silenceTimerRef.current);
                 silenceTimerRef.current = setTimeout(() => {
                     const t = lastInterimRef.current?.trim();
-                    if (t && t.length > 2 && !processingRef.current && !isSpeakingRef.current) {
+                    if (t && t.length > 1 && !processingRef.current && !isSpeakingRef.current) {
                         log(`⏱️ Silence: "${t}"`);
                         handleTranscript(t);
                         lastInterimRef.current = '';
                         setInterimText('');
                     }
-                }, 1500);
+                }, 1000); // 1000ms silence = user is done speaking
             }
         };
 
         r.onerror = (e) => {
             if (['no-speech', 'aborted'].includes(e.error)) {
-                if (isActiveRef.current) {
-                    restartCountRef.current++;
-                    if (restartCountRef.current < 50) {
-                        setTimeout(() => startRecognition(), Math.min(500 * restartCountRef.current, 3000));
-                    }
-                }
+                if (isActiveRef.current) setTimeout(() => startRecognition(), 300);
                 return;
             }
-            if (isActiveRef.current && restartCountRef.current < 50) {
-                restartCountRef.current++;
-                setTimeout(() => startRecognition(), 1500);
-            }
+            if (isActiveRef.current) setTimeout(() => startRecognition(), 1000);
         };
 
         r.onend = () => {
-            if (isActiveRef.current && restartCountRef.current < 50) {
-                restartCountRef.current++;
-                setTimeout(() => startRecognition(), 300);
-            }
+            if (isActiveRef.current) setTimeout(() => startRecognition(), 100);
         };
 
         recognitionRef.current = r;
