@@ -113,6 +113,35 @@ export const PAYMENT_KEYWORDS = {
 export const YES_KEYWORDS = ['haan', 'ha', 'yes', 'ji', 'theek', 'thik', 'sahi', 'bilkul', 'ok', 'okay', 'chalega', 'हाँ', 'जी', 'ठीक', 'सही', 'चलेगा'];
 export const NO_KEYWORDS = ['nahi', 'nah', 'no', 'mat', 'cancel', 'band', 'naa', 'not', 'नहीं', 'मत', 'ना'];
 
+// ── CITIZEN-REQUIRED features (need Aadhaar login) ─
+// These are services that ONLY work after citizen login
+export const CITIZEN_REQUIRED_KEYWORDS = [
+    'naam badal', 'naam badlo', 'name change', 'naam transfer', 'नाम बदल', 'नाम ट्रांसफर',
+    'new connection', 'naya connection', 'नया कनेक्शन',
+    'gas pipeline', 'pipeline', 'gas line', 'पाइपलाइन', 'गैस लाइन',
+    'certificate', 'pramanpatra', 'प्रमाणपत्र', 'सर्टिफिकेट',
+    'transfer', 'ownership', 'malik', 'मालिक',
+    'meter change', 'meter badal', 'मीटर बदल',
+    'subsidy', 'subsidi', 'सब्सिडी',
+    'dashboard', 'history', 'record', 'itihas', 'इतिहास', 'रिकॉर्ड',
+];
+
+// ── RE-PROMPT: When user doesn't respond ───────────
+export const RE_PROMPT_GREETINGS = [
+    {
+        hi: 'कोई बात नहीं, दोबारा बताइए — आपका अपना बिल है और आधार कार्ड है? या किसी और का बिल भरना है?',
+        en: 'No worries, let me ask again — is this your own bill with Aadhaar? Or paying for someone else?',
+    },
+    {
+        hi: 'अगर आपके पास आधार कार्ड है तो "अपना" बोलें। अगर किसी रिश्तेदार का बिल भरना है तो "रिश्तेदार का" बोलें। या सीधे बोलें "बिजली बिल" जो भरना हो।',
+        en: 'If you have Aadhaar, say "my own". If paying for a relative, say "someone else". Or directly say which bill — "electricity bill".',
+    },
+    {
+        hi: 'मैं सुन रहा हूँ! बस बोलिए — "अपना बिल है" या "किसी और का बिल भरना है"। आप सीधे "बिजली", "पानी", या "गैस" भी बोल सकते हैं।',
+        en: 'I\'m listening! Just say "my own bill" or "someone else\'s". You can also say "electricity", "water", or "gas" directly.',
+    },
+];
+
 // ── RESPONSE TEMPLATES ──────────────────────────────
 
 export const RESPONSES = {
@@ -131,6 +160,24 @@ export const RESPONSES = {
     not_understood: {
         hi: 'माफ कीजिए, मैं समझ नहीं पाया। आप बोल सकते हैं — "बिजली का बिल", "पानी का बिल", "गैस का बिल", "शिकायत", या "वापस"।',
         en: 'Sorry, I didn\'t understand. You can say — "electricity bill", "water bill", "gas bill", "complaint", or "go back".',
+    },
+
+    // ── Citizen-required feature redirect ──────────
+    citizen_required_redirect: {
+        hi: 'अच्छा, इसके लिए आपको आधार कार्ड से लॉगिन करना होगा। अगर आपके पास आधार कार्ड है तो अंगूठा लगाकर या OTP से लॉगिन कर सकते हैं। मैं आपको लॉगिन पेज पर ले जा रहा हूँ।',
+        en: 'For this, you\'ll need to login with your Aadhaar card. You can use thumbprint or OTP. I\'m taking you to the login page.',
+    },
+    citizen_required_naam: {
+        hi: 'अच्छा, नाम बदलवाना है! इसके लिए आधार कार्ड से लॉगिन ज़रूरी है। अगर आपके नाम से करवाना है तो fingerprint से भी हो जाएगा। चलिए, मैं आपको लॉगिन पेज पर ले जाता हूँ।',
+        en: 'You want a name change! For this, Aadhaar login is required. If it\'s in your name, fingerprint will work too. Let me take you to the login page.',
+    },
+    citizen_required_pipeline: {
+        hi: 'अच्छा, गैस पाइपलाइन जुड़वानी है! इसके लिए आधार कार्ड से लॉगिन करना होगा — अपने नाम से कराना है तो अंगूठा लगा दीजिए, बहुत आसान है। मैं आपको लॉगिन पेज पर ले जा रहा हूँ।',
+        en: 'You want a gas pipeline connection! Aadhaar login is needed for this. Thumbprint is the easiest way. Let me take you to login.',
+    },
+    citizen_required_connection: {
+        hi: 'अच्छा, नया कनेक्शन लगवाना है! इसके लिए आधार कार्ड से लॉगिन ज़रूरी है। अंगूठा लगाइए या OTP डालिए — 2-3 सेकंड में हो जाएगा। चलिए।',
+        en: 'New connection! Aadhaar login is required. Thumbprint or OTP — just 2-3 seconds. Let\'s go.',
     },
 
     // ── Page-specific guidance ──────────────────────

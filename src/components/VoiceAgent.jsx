@@ -1,18 +1,21 @@
 /**
  * ═══════════════════════════════════════════════════════════
- * VoiceAgent v9 — Conversational Knowledge Base
+ * VoiceAgent v10 — Smart Navigation + Citizen Redirects
  *
- * Uses voiceKnowledgeBase.js for guided conversation flow.
- * The agent IS the guide — asks questions, understands answers,
- * navigates, and explains what to do on each page.
+ * FIXES:
+ *   1. Back button → speaks CURRENT page guidance (not old)
+ *   2. Citizen-required features in guest mode → redirect to login
+ *   3. No-response timeout → re-prompts with different wording
+ *   4. Route-change ALWAYS announces current page
+ *   5. Handles "naam badalna", "gas pipeline" etc. smartly
  *
  * FLOW:
  *   voiceMode=true → INITIAL greeting ("Aadhaar hai?")
- *   → User answers → citizen/guest path chosen
- *   → Navigate + announce what to do
- *   → Keep listening for next command
- *   → Common Q&A answered instantly (no API)
- *   → Unknown → Gemini fallback
+ *   → 12s no response → re-prompt (different words)
+ *   → answer → citizen/guest path
+ *   → citizen-required feature in guest? → redirect to login
+ *   → navigation → announce current page
+ *   → Common Q&A instant / Gemini fallback
  * ═══════════════════════════════════════════════════════════
  */
 
@@ -22,9 +25,10 @@ import VoiceContext from './VoiceContext';
 import { streamGeminiResponse, stopSpeaking, hasApiKeys } from '../utils/geminiVoiceAgent';
 import {
     CONV_STATES, CITIZEN_KEYWORDS, GUEST_KEYWORDS,
+    CITIZEN_REQUIRED_KEYWORDS, RE_PROMPT_GREETINGS,
     COMPLAINT_KEYWORDS, BACK_KEYWORDS, HOME_KEYWORDS, STOP_KEYWORDS,
     YES_KEYWORDS,
-    matchesKeywords, detectBillType, detectComplaintCategory,
+    matchesKeywords, detectBillType,
     findCommonAnswer, getPageGuidance,
     getResponse, getInitialGreeting,
 } from '../utils/voiceKnowledgeBase';
@@ -56,6 +60,8 @@ const VoiceAgent = memo(function VoiceAgent({
     const lastRouteRef = useRef('');
     const restartCountRef = useRef(0);
     const convStateRef = useRef(CONV_STATES.INITIAL);
+    const rePromptTimerRef = useRef(null);
+    const rePromptCountRef = useRef(0);
 
     const location = useLocation();
 
@@ -101,6 +107,35 @@ const VoiceAgent = memo(function VoiceAgent({
         });
     }, []);
 
+    // ═══ RE-PROMPT TIMER ═════════════════════════════
+    // If user doesn't speak for 12s after greeting, repeat in different words
+
+    const startRePromptTimer = useCallback(() => {
+        clearTimeout(rePromptTimerRef.current);
+        if (!isActiveRef.current) return;
+        if (convStateRef.current !== CONV_STATES.WAIT_PATH) return;
+
+        rePromptTimerRef.current = setTimeout(async () => {
+            if (!isActiveRef.current || processingRef.current || isSpeakingRef.current) return;
+            if (convStateRef.current !== CONV_STATES.WAIT_PATH) return;
+
+            const idx = Math.min(rePromptCountRef.current, RE_PROMPT_GREETINGS.length - 1);
+            const rp = RE_PROMPT_GREETINGS[idx];
+            const text = rp[langRef.current] || rp.en;
+
+            log(`🔁 Re-prompt #${rePromptCountRef.current + 1}`);
+            setLastReply(text);
+            await ttsSpeak(text, langRef.current);
+            rePromptCountRef.current++;
+
+            if (isActiveRef.current) {
+                setStatus('listening');
+                // Set another re-prompt if still waiting
+                if (rePromptCountRef.current < 3) startRePromptTimer();
+            }
+        }, 12000);
+    }, [log, ttsSpeak]);
+
     // ═══ RECOGNITION ═════════════════════════════════
 
     const startRecognition = useCallback(() => {
@@ -131,6 +166,9 @@ const VoiceAgent = memo(function VoiceAgent({
                 bargedInRef.current = true;
                 setStatus('listening');
             }
+
+            // Cancel re-prompt timer when user speaks
+            clearTimeout(rePromptTimerRef.current);
 
             if (last.isFinal) {
                 const t = last[0].transcript.trim();
@@ -188,6 +226,7 @@ const VoiceAgent = memo(function VoiceAgent({
         if (processingRef.current) return;
         processingRef.current = true;
         bargedInRef.current = false;
+        clearTimeout(rePromptTimerRef.current);
 
         setLastTranscript(transcript);
         setInterimText('');
@@ -207,9 +246,14 @@ const VoiceAgent = memo(function VoiceAgent({
             return;
         }
 
-        // ── BACK ──
+        // ── BACK → navigate THEN let route-change handle guidance ──
         if (matchesKeywords(transcript, BACK_KEYWORDS)) {
+            log('⬅️ Back navigation');
+            const backReply = L === 'hi' ? 'ठीक है, पीछे जा रहे हैं।' : 'Going back.';
+            setLastReply(backReply);
+            await ttsSpeak(backReply, L);
             navigate(-1);
+            // Route-change effect will speak the new page guidance
             processingRef.current = false;
             if (isActiveRef.current) setStatus('listening');
             return;
@@ -218,6 +262,36 @@ const VoiceAgent = memo(function VoiceAgent({
         // ── HOME ──
         if (matchesKeywords(transcript, HOME_KEYWORDS)) {
             navigate('/');
+            // Route-change will handle guidance
+            processingRef.current = false;
+            return;
+        }
+
+        // ── CITIZEN-REQUIRED FEATURES (naam badalna, pipeline, etc.) ──
+        // If user asks for these in guest mode, redirect to citizen login
+        if (matchesKeywords(transcript, CITIZEN_REQUIRED_KEYWORDS)) {
+            log('🔐 Citizen-required feature detected');
+
+            // Pick the most specific response
+            let responseKey = 'citizen_required_redirect';
+            const lower = transcript.toLowerCase();
+            if (lower.includes('naam') || lower.includes('name') || lower.includes('नाम')) {
+                responseKey = 'citizen_required_naam';
+            } else if (lower.includes('pipeline') || lower.includes('gas line') || lower.includes('पाइपलाइन') || lower.includes('गैस लाइन')) {
+                responseKey = 'citizen_required_pipeline';
+            } else if (lower.includes('connection') || lower.includes('naya') || lower.includes('नया') || lower.includes('कनेक्शन')) {
+                responseKey = 'citizen_required_connection';
+            }
+
+            const r = getResponse(responseKey, L);
+            setLastReply(r);
+            await ttsSpeak(r, L);
+
+            // Redirect to citizen auth
+            convStateRef.current = CONV_STATES.CITIZEN_AUTH;
+            setScreen('citizen-auth');
+
+            if (isActiveRef.current) setStatus('listening');
             processingRef.current = false;
             return;
         }
@@ -273,10 +347,9 @@ const VoiceAgent = memo(function VoiceAgent({
             const billType = detectBillType(transcript);
             if (billType) {
                 log(`→ Direct bill: ${billType}`);
-                convStateRef.current = CONV_STATES.BILL_PAGE;
+                convStateRef.current = CONV_STATES.BILL_INPUT;
                 setScreen('guest');
                 navigate(`/bill/${billType}`);
-                // Guidance spoken by route-change detector
                 processingRef.current = false;
                 return;
             }
@@ -284,7 +357,7 @@ const VoiceAgent = memo(function VoiceAgent({
             // Complaint mentioned?
             if (matchesKeywords(transcript, COMPLAINT_KEYWORDS)) {
                 log('→ Direct complaint');
-                convStateRef.current = CONV_STATES.COMPLAINT;
+                convStateRef.current = CONV_STATES.COMPLAINT_CAT;
                 setScreen('guest');
                 navigate('/complaint');
                 processingRef.current = false;
@@ -292,11 +365,11 @@ const VoiceAgent = memo(function VoiceAgent({
             }
         }
 
-        // ── GUEST_HOME / BILL_PAGE / any: nav by bill type ──
+        // ── Any state: nav by bill type ──
         const billType = detectBillType(transcript);
         if (billType) {
             log(`→ Bill: ${billType}`);
-            convStateRef.current = CONV_STATES.BILL_PAGE;
+            convStateRef.current = CONV_STATES.BILL_INPUT;
             navigate(`/bill/${billType}`);
             processingRef.current = false;
             return;
@@ -304,7 +377,7 @@ const VoiceAgent = memo(function VoiceAgent({
 
         if (matchesKeywords(transcript, COMPLAINT_KEYWORDS)) {
             log('→ Complaint');
-            convStateRef.current = CONV_STATES.COMPLAINT;
+            convStateRef.current = CONV_STATES.COMPLAINT_CAT;
             navigate('/complaint');
             processingRef.current = false;
             return;
@@ -358,24 +431,24 @@ const VoiceAgent = memo(function VoiceAgent({
         processingRef.current = false;
     }, [navigate, setScreen, log, ttsSpeak, queueTTS]);
 
-    // ═══ ROUTE CHANGE → PAGE GUIDANCE ═══════════════
+    // ═══ ROUTE CHANGE → PAGE GUIDANCE (ALWAYS) ═══════
 
     useEffect(() => {
         if (!isActiveRef.current || !voiceMode) return;
         const currentPath = location.pathname;
 
         if (currentPath !== lastRouteRef.current) {
-            const prevRoute = lastRouteRef.current;
             lastRouteRef.current = currentPath;
-            if (!prevRoute) return;
-            if (processingRef.current) return;
 
+            // ALWAYS speak guidance for the new page
             const guidance = getPageGuidance(currentPath, langRef.current);
             if (guidance) {
                 log(`📍 → ${currentPath}`);
                 setLastReply(guidance);
+
+                // Small delay for page render, then speak
                 setTimeout(async () => {
-                    if (isActiveRef.current && !processingRef.current) {
+                    if (isActiveRef.current && !isSpeakingRef.current) {
                         await ttsSpeak(guidance, langRef.current);
                         if (isActiveRef.current) setStatus('listening');
                     }
@@ -395,6 +468,7 @@ const VoiceAgent = memo(function VoiceAgent({
         setInterimText('');
         stopSpeaking();
         restartCountRef.current = 0;
+        rePromptCountRef.current = 0;
         lastRouteRef.current = window.location.pathname;
         convStateRef.current = CONV_STATES.WAIT_PATH;
         log('🟢 Activated');
@@ -409,8 +483,10 @@ const VoiceAgent = memo(function VoiceAgent({
             log('📢 Greeting done → listening');
             setStatus('listening');
             startRecognition();
+            // Start re-prompt timer
+            startRePromptTimer();
         }
-    }, [startRecognition, log, ttsSpeak]);
+    }, [startRecognition, startRePromptTimer, log, ttsSpeak]);
 
     // ═══ DEACTIVATE ═════════════════════════════════
 
@@ -424,6 +500,7 @@ const VoiceAgent = memo(function VoiceAgent({
         convStateRef.current = CONV_STATES.INITIAL;
         stopSpeaking();
         clearTimeout(silenceTimerRef.current);
+        clearTimeout(rePromptTimerRef.current);
         try { recognitionRef.current?.abort(); } catch { }
         log('🔴 Deactivated');
     }, [log]);
@@ -442,6 +519,7 @@ const VoiceAgent = memo(function VoiceAgent({
             isActiveRef.current = false;
             try { recognitionRef.current?.abort(); } catch { }
             stopSpeaking();
+            clearTimeout(rePromptTimerRef.current);
         };
     }, []);
 
