@@ -39,16 +39,16 @@ const SPEECH_LANGS = {
 
 const SCREEN_GUIDANCE = {
     'citizen-auth': {
-        hi: 'लॉगिन के लिए तीन विकल्प हैं — अंगूठा, आँख स्कैन, या OTP। अंगूठा सबसे आसान है। बोलें "अंगूठा", "आँख", या "OTP"।',
-        en: 'Three login options — Thumbprint, Iris, or OTP. Thumbprint is easiest. Say "thumb", "iris", or "OTP".',
+        hi: 'अंगूठा लगाइए, आँख स्कैन, या OTP — कौन सा?',
+        en: 'Thumb, iris, or OTP — which one?',
     },
     'citizen-dashboard': {
-        hi: 'डैशबोर्ड खुल गया। बकाया बिल, शिकायतें, और सेवाएं हैं। बोलें क्या करना है।',
-        en: 'Dashboard open. Bills, complaints, services available. What would you like?',
+        hi: 'डैशबोर्ड खुल गया। बोलिए क्या करना है?',
+        en: 'Dashboard ready. What would you like?',
     },
     guest: {
-        hi: 'कौन सा बिल भरना है — बिजली, पानी, या गैस? शिकायत भी दर्ज कर सकते हैं।',
-        en: 'Which bill — electricity, water, or gas? You can also file a complaint.',
+        hi: 'बिजली, पानी, या गैस — कौन सा बिल?',
+        en: 'Electricity, water, or gas — which bill?',
     },
 };
 
@@ -170,11 +170,28 @@ const VoiceAgent = memo(function VoiceAgent({
         r.onresult = (e) => {
             const last = e.results[e.results.length - 1];
 
-            // ═══ IGNORE results while agent is speaking ═══
-            // The mic picks up TTS audio and processes it as speech.
-            // This caused a loop: TTS → mic echo → barge-in → process echo → repeat → loop
-            // User can skip TTS with the ⏭ button instead.
-            if (isSpeakingRef.current) return;
+            // ═══ SMART BARGE-IN ═══
+            // During TTS: mic picks up echo → low confidence, short text.
+            // Real user speech → HIGH confidence (>0.6), longer text (>5 chars).
+            // Only cancel TTS if it's genuinely the user speaking.
+            if (isSpeakingRef.current) {
+                if (last.isFinal) {
+                    const conf = last[0].confidence || 0;
+                    const txt = last[0].transcript.trim();
+                    if (conf > 0.6 && txt.length > 5) {
+                        log(`🔇 Barge-in: "${txt}" (${(conf * 100).toFixed(0)}%)`);
+                        window.speechSynthesis.cancel();
+                        isSpeakingRef.current = false;
+                        bargedInRef.current = true;
+                        setStatus('listening');
+                        // Don't return — let it fall through to process this transcript
+                    } else {
+                        return; // TTS echo or noise — ignore
+                    }
+                } else {
+                    return; // Ignore interim results during TTS
+                }
+            }
 
             clearTimeout(rePromptTimerRef.current);
 
