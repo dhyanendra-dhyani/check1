@@ -1,19 +1,20 @@
 /**
  * ═══════════════════════════════════════════════════════════
- * VoiceAgent v11 — Screen-Change Detection + Auth Guidance
+ * VoiceAgent v12 — True Barge-In + Mid-Speech Page Transitions
  *
- * CRITICAL FIX: App uses TWO navigation systems:
- *   1. React Router (URL: /bill/electricity, /complaint, /)
- *   2. Screen state (screen: idle, gateway, guest, citizen-auth)
+ * KEY FIXES:
+ *   1. TRUE BARGE-IN: When user speaks mid-TTS:
+ *      - Cancel TTS immediately
+ *      - Abort current processing (abortRef)
+ *      - Process NEW user transcript
+ *      - Respond to what USER said, not finish old sentence
  *
- * Previous versions only watched URL changes. This version
- * watches BOTH URL and screen state changes.
+ *   2. MID-SPEECH PAGE TRANSITION: When user clicks to new page:
+ *      - Cancel current TTS about old page
+ *      - Say transition phrase: "लगता है आप आगे आ गए हैं"
+ *      - Speak guidance for NEW page
  *
- * ALSO FIXED:
- *   - Detailed auth page guidance (thumb/iris/OTP step-by-step)
- *   - "maph kijiye" loop → better fallback with clearer options
- *   - Back button → proper page announcement
- *   - Re-prompt only on WAIT_PATH state
+ *   3. Screen + Route change BOTH cancel old speech & speak new
  * ═══════════════════════════════════════════════════════════
  */
 
@@ -35,20 +36,26 @@ const SPEECH_LANGS = {
     ta: 'ta-IN', te: 'te-IN', kn: 'kn-IN', mr: 'mr-IN',
 };
 
-// ── SCREEN-SPECIFIC GUIDANCE (for non-URL transitions) ──
+// ── SCREEN GUIDANCE ─────────────────────────────────
 const SCREEN_GUIDANCE = {
     'citizen-auth': {
-        hi: 'ठीक है, लॉगिन पेज आ गया। आपके सामने तीन बटन हैं। पहला — अंगूठा लगाइए, बायोमेट्रिक मशीन पर दाईं तरफ अपना अंगूठा रखें। दूसरा — आँख स्कैन, कैमरे में देखें। तीसरा — OTP, मोबाइल पर कोड आएगा। सबसे आसान अंगूठा है — बस लगाइए, 2-3 सेकंड में हो जाएगा। या बोलें "अंगूठा", "आँख", या "OTP"।',
-        en: 'Login page is ready. Three buttons: First — Thumbprint, place your thumb on the biometric scanner on the right. Second — Iris scan, look at the camera. Third — OTP, you\'ll receive a code on your phone. Thumbprint is easiest — just 2-3 seconds. Say "thumb", "iris", or "OTP".',
+        hi: 'लॉगिन पेज आ गया। तीन बटन हैं — अंगूठा लगाइए, आँख स्कैन कराइए, या OTP डालिए। सबसे आसान अंगूठा है — बस लगाइए, 2-3 सेकंड में हो जाएगा। या बोलें "अंगूठा", "आँख", या "OTP"।',
+        en: 'Login page is ready. Three options — Thumbprint, Iris scan, or OTP. Thumbprint is easiest. Say "thumb", "iris", or "OTP".',
     },
     'citizen-dashboard': {
-        hi: 'आपका डैशबोर्ड खुल गया है! यहाँ तीन सेक्शन हैं — ऊपर आपके बकाया बिल, बीच में आपकी शिकायतें, और नीचे अतिरिक्त सेवाएं जैसे नया कनेक्शन, नाम बदलाव। बोलें क्या करना है?',
-        en: 'Dashboard is open! Three sections — pending bills at top, your complaints in middle, extra services below. What would you like to do?',
+        hi: 'डैशबोर्ड खुल गया! ऊपर बकाया बिल, बीच में शिकायतें, नीचे अतिरिक्त सेवाएं। बोलें क्या करना है?',
+        en: 'Dashboard is open! Pending bills, complaints, and extra services. What would you like to do?',
     },
     guest: {
-        hi: 'ठीक है! बिना लॉगिन के सारे काम हो जाएँगे। बताइए कौन सा बिल भरना है — बिजली, पानी, या गैस? शिकायत भी दर्ज कर सकते हैं।',
-        en: 'No login needed! Which bill — electricity, water, or gas? You can also file a complaint.',
+        hi: 'ठीक है! बताइए कौन सा बिल भरना है — बिजली, पानी, या गैस? शिकायत भी दर्ज कर सकते हैं।',
+        en: 'Which bill — electricity, water, or gas? You can also file a complaint.',
     },
+};
+
+// ── Transition phrases (when user navigates mid-speech) ──
+const TRANSITION = {
+    hi: 'लगता है आप आगे आ गए हैं। ',
+    en: 'Looks like you moved ahead. ',
 };
 
 const VoiceAgent = memo(function VoiceAgent({
@@ -67,7 +74,7 @@ const VoiceAgent = memo(function VoiceAgent({
     const langRef = useRef(lang);
     const screenRef = useRef(screen);
     const processingRef = useRef(false);
-    const bargedInRef = useRef(false);
+    const abortRef = useRef(0);         // incremented to abort old processing
     const silenceTimerRef = useRef(null);
     const lastInterimRef = useRef('');
     const lastRouteRef = useRef('');
@@ -76,6 +83,7 @@ const VoiceAgent = memo(function VoiceAgent({
     const convStateRef = useRef(CONV_STATES.INITIAL);
     const rePromptTimerRef = useRef(null);
     const rePromptCountRef = useRef(0);
+    const pendingTranscriptRef = useRef(null);  // holds barged-in transcript
 
     const location = useLocation();
 
@@ -87,10 +95,18 @@ const VoiceAgent = memo(function VoiceAgent({
         addLog?.(msg);
     }, [addLog]);
 
+    // ── CANCEL ALL SPEECH ────────────────────────────
+    const cancelAllSpeech = useCallback(() => {
+        window.speechSynthesis?.cancel();
+        isSpeakingRef.current = false;
+    }, []);
+
     // ── TTS ──────────────────────────────────────────
-    const ttsSpeak = useCallback((text, langCode) => {
+    const ttsSpeak = useCallback((text, langCode, myAbortId) => {
         return new Promise((resolve) => {
             if (!window.speechSynthesis || !text) { resolve(); return; }
+            // If abort ID changed, someone interrupted us — don't speak
+            if (myAbortId !== undefined && myAbortId !== abortRef.current) { resolve(); return; }
             window.speechSynthesis.cancel();
             const u = new SpeechSynthesisUtterance(text);
             u.lang = SPEECH_LANGS[langCode] || 'hi-IN';
@@ -106,9 +122,10 @@ const VoiceAgent = memo(function VoiceAgent({
         });
     }, []);
 
-    const queueTTS = useCallback((text, langCode) => {
+    const queueTTS = useCallback((text, langCode, myAbortId) => {
         return new Promise((resolve) => {
-            if (!window.speechSynthesis || !text || bargedInRef.current) { resolve(); return; }
+            if (!window.speechSynthesis || !text) { resolve(); return; }
+            if (myAbortId !== undefined && myAbortId !== abortRef.current) { resolve(); return; }
             const u = new SpeechSynthesisUtterance(text);
             u.lang = SPEECH_LANGS[langCode] || 'hi-IN';
             u.rate = 1.05; u.pitch = 1; u.volume = 1;
@@ -121,7 +138,7 @@ const VoiceAgent = memo(function VoiceAgent({
         });
     }, []);
 
-    // ═══ RE-PROMPT TIMER ═════════════════════════════
+    // ═══ RE-PROMPT ═══════════════════════════════════
 
     const startRePromptTimer = useCallback(() => {
         clearTimeout(rePromptTimerRef.current);
@@ -170,12 +187,15 @@ const VoiceAgent = memo(function VoiceAgent({
         r.onresult = (e) => {
             const last = e.results[e.results.length - 1];
 
-            // BARGE-IN
-            if (isSpeakingRef.current) {
-                log('🔇 Barge-in!');
-                window.speechSynthesis.cancel();
-                isSpeakingRef.current = false;
-                bargedInRef.current = true;
+            // ═══ TRUE BARGE-IN ═══
+            // User speaks while agent is speaking or processing
+            // → Cancel EVERYTHING, process the new speech
+            if (isSpeakingRef.current || processingRef.current) {
+                log('🔇 BARGE-IN! Canceling old speech + processing');
+                cancelAllSpeech();
+                // Increment abort ID to kill any in-progress handleTranscript
+                abortRef.current++;
+                processingRef.current = false;
                 setStatus('listening');
             }
 
@@ -187,7 +207,10 @@ const VoiceAgent = memo(function VoiceAgent({
                 lastInterimRef.current = '';
                 setInterimText('');
                 clearTimeout(silenceTimerRef.current);
-                if (t.length > 1 && !processingRef.current) handleTranscript(t);
+                if (t.length > 1) {
+                    // Always process — no processingRef guard (barge-in clears it above)
+                    handleTranscript(t);
+                }
             } else {
                 lastInterimRef.current = last[0].transcript;
                 setInterimText(last[0].transcript);
@@ -229,26 +252,14 @@ const VoiceAgent = memo(function VoiceAgent({
 
         recognitionRef.current = r;
         try { r.start(); } catch { if (isActiveRef.current) setTimeout(() => startRecognition(), 1000); }
-    }, [log]);
-
-    // ═══ SPEAK SCREEN GUIDANCE (helper) ═══════════════
-
-    const speakScreenGuidance = useCallback(async (screenName) => {
-        const g = SCREEN_GUIDANCE[screenName];
-        if (!g) return;
-        const text = g[langRef.current] || g.en;
-        log(`📍 Screen → ${screenName}: speaking guidance`);
-        setLastReply(text);
-        await ttsSpeak(text, langRef.current);
-        if (isActiveRef.current) setStatus('listening');
-    }, [log, ttsSpeak]);
+    }, [log, cancelAllSpeech]);
 
     // ═══ KNOWLEDGE-BASE PROCESSING ═══════════════════
 
     const handleTranscript = useCallback(async (transcript) => {
-        if (processingRef.current) return;
+        // Grab current abort ID — if it changes mid-processing, we stop
+        const myAbortId = abortRef.current;
         processingRef.current = true;
-        bargedInRef.current = false;
         clearTimeout(rePromptTimerRef.current);
 
         setLastTranscript(transcript);
@@ -260,11 +271,14 @@ const VoiceAgent = memo(function VoiceAgent({
         const L = langRef.current;
         const lower = transcript.toLowerCase();
 
+        // Helper: check if we've been aborted (user barged in again)
+        const aborted = () => myAbortId !== abortRef.current;
+
         // ── STOP ──
         if (matchesKeywords(transcript, STOP_KEYWORDS)) {
             const r = getResponse('stopping', L);
             setLastReply(r);
-            await ttsSpeak(r, L);
+            await ttsSpeak(r, L, myAbortId);
             deactivateVoice();
             processingRef.current = false;
             return;
@@ -275,8 +289,8 @@ const VoiceAgent = memo(function VoiceAgent({
             log('⬅️ Back');
             const reply = L === 'hi' ? 'ठीक है, पीछे जा रहे हैं।' : 'Going back.';
             setLastReply(reply);
-            await ttsSpeak(reply, L);
-            navigate(-1);
+            await ttsSpeak(reply, L, myAbortId);
+            if (!aborted()) navigate(-1);
             processingRef.current = false;
             if (isActiveRef.current) setStatus('listening');
             return;
@@ -289,46 +303,46 @@ const VoiceAgent = memo(function VoiceAgent({
             return;
         }
 
-        // ── AUTH ACTIONS: thumb/iris/OTP on citizen-auth screen ──
+        // ── AUTH ACTIONS (on citizen-auth screen) ──
         if (screenRef.current === 'citizen-auth') {
             if (lower.includes('angootha') || lower.includes('thumb') || lower.includes('finger') || lower.includes('अंगूठा') || lower.includes('ungali')) {
-                log('👆 Thumb auth requested');
+                log('👆 Thumb');
                 const r = L === 'hi'
                     ? 'ठीक है, अंगूठा लगाइए — दाईं तरफ बायोमेट्रिक मशीन पर अपना अंगूठा रखें। 2-3 सेकंड में स्कैन हो जाएगा। नीचे "Thumb" बटन दबाएं।'
-                    : 'Place your thumb on the biometric scanner on the right. It\'ll scan in 2-3 seconds. Press the "Thumb" button below.';
+                    : 'Place your thumb on the biometric scanner. Press the "Thumb" button below.';
                 setLastReply(r);
-                await ttsSpeak(r, L);
-                if (isActiveRef.current) setStatus('listening');
+                await ttsSpeak(r, L, myAbortId);
+                if (isActiveRef.current && !aborted()) setStatus('listening');
                 processingRef.current = false;
                 return;
             }
             if (lower.includes('aankh') || lower.includes('iris') || lower.includes('eye') || lower.includes('आँख') || lower.includes('ankh')) {
-                log('👁️ Iris auth requested');
+                log('👁️ Iris');
                 const r = L === 'hi'
-                    ? 'ठीक है, आँख स्कैन — कैमरे की तरफ देखें, अपनी आँख खुली रखें। 2-3 सेकंड में हो जाएगा। नीचे "Iris" बटन दबाएं।'
-                    : 'Look at the camera with your eye open. It\'ll scan in 2-3 seconds. Press the "Iris" button below.';
+                    ? 'ठीक है, कैमरे की तरफ देखें, आँख खुली रखें। नीचे "Iris" बटन दबाएं।'
+                    : 'Look at the camera with your eye open. Press the "Iris" button.';
                 setLastReply(r);
-                await ttsSpeak(r, L);
-                if (isActiveRef.current) setStatus('listening');
+                await ttsSpeak(r, L, myAbortId);
+                if (isActiveRef.current && !aborted()) setStatus('listening');
                 processingRef.current = false;
                 return;
             }
-            if (lower.includes('otp') || lower.includes('mobile') || lower.includes('code') || lower.includes('ओटीपी') || lower.includes('मोबाइल')) {
-                log('📱 OTP auth requested');
+            if (lower.includes('otp') || lower.includes('mobile') || lower.includes('ओटीपी') || lower.includes('मोबाइल')) {
+                log('📱 OTP');
                 const r = L === 'hi'
-                    ? 'ठीक है, OTP वाला तरीका। पहले नीचे "OTP" बटन दबाएं। फिर अपना आधार से जुड़ा मोबाइल नंबर डालें। OTP आएगा, वो डालें और लॉगिन हो जाएगा। डेमो OTP है 482916।'
-                    : 'OTP method. Press "OTP" button below. Enter your Aadhaar-linked mobile number. You\'ll get an OTP. Demo OTP is 482916.';
+                    ? 'ठीक है, "OTP" बटन दबाएं। मोबाइल नंबर डालें। OTP आएगा — डेमो OTP है 482916।'
+                    : 'Press "OTP" button. Enter mobile number. Demo OTP is 482916.';
                 setLastReply(r);
-                await ttsSpeak(r, L);
-                if (isActiveRef.current) setStatus('listening');
+                await ttsSpeak(r, L, myAbortId);
+                if (isActiveRef.current && !aborted()) setStatus('listening');
                 processingRef.current = false;
                 return;
             }
         }
 
-        // ── CITIZEN-REQUIRED FEATURES (naam badalna, pipeline, etc.) ──
+        // ── CITIZEN-REQUIRED FEATURES ──
         if (matchesKeywords(transcript, CITIZEN_REQUIRED_KEYWORDS)) {
-            log('🔐 Citizen-required feature');
+            log('🔐 Citizen-required');
             let responseKey = 'citizen_required_redirect';
             if (lower.includes('naam') || lower.includes('name') || lower.includes('नाम')) responseKey = 'citizen_required_naam';
             else if (lower.includes('pipeline') || lower.includes('gas line') || lower.includes('पाइपलाइन')) responseKey = 'citizen_required_pipeline';
@@ -336,63 +350,59 @@ const VoiceAgent = memo(function VoiceAgent({
 
             const r = getResponse(responseKey, L);
             setLastReply(r);
-            await ttsSpeak(r, L);
-            convStateRef.current = CONV_STATES.CITIZEN_AUTH;
-            setScreen('citizen-auth');
-            // Screen-change detector will speak auth guidance after
+            await ttsSpeak(r, L, myAbortId);
+            if (!aborted()) {
+                convStateRef.current = CONV_STATES.CITIZEN_AUTH;
+                setScreen('citizen-auth');
+            }
             processingRef.current = false;
             return;
         }
 
-        // ── COMMON Q&A (instant, no API) ──
+        // ── COMMON Q&A ──
         const qa = findCommonAnswer(transcript, L);
         if (qa) {
-            log('📚 Q&A match');
+            log('📚 Q&A');
             setLastReply(qa);
-            await ttsSpeak(qa, L);
-            if (isActiveRef.current) setStatus('listening');
+            await ttsSpeak(qa, L, myAbortId);
+            if (isActiveRef.current && !aborted()) setStatus('listening');
             processingRef.current = false;
             return;
         }
 
-        // ══════════════════════════════════════════════
-        // STATE MACHINE
-        // ══════════════════════════════════════════════
+        // ═══ STATE MACHINE ═══════════════════════════
 
         const state = convStateRef.current;
 
-        // ── WAIT_PATH: citizen/guest answer ──
         if (state === CONV_STATES.WAIT_PATH || state === CONV_STATES.INITIAL) {
 
             if (matchesKeywords(transcript, CITIZEN_KEYWORDS)) {
-                log('→ Citizen path');
+                log('→ Citizen');
                 convStateRef.current = CONV_STATES.CITIZEN_AUTH;
                 const r = getResponse('citizen_chosen', L);
                 setLastReply(r);
-                await ttsSpeak(r, L);
-                // NOW switch screen — screen-change detector will add auth guidance
-                setScreen('citizen-auth');
+                await ttsSpeak(r, L, myAbortId);
+                if (!aborted()) setScreen('citizen-auth');
                 processingRef.current = false;
                 return;
             }
 
             if (matchesKeywords(transcript, GUEST_KEYWORDS)) {
-                log('→ Guest path');
+                log('→ Guest');
                 convStateRef.current = CONV_STATES.GUEST_HOME;
                 setScreen('guest');
                 navigate('/');
                 const r = getResponse('guest_chosen', L);
                 setLastReply(r);
-                await ttsSpeak(r, L);
-                if (isActiveRef.current) setStatus('listening');
+                await ttsSpeak(r, L, myAbortId);
+                if (isActiveRef.current && !aborted()) setStatus('listening');
                 processingRef.current = false;
                 return;
             }
 
-            // Bill directly
             const billType = detectBillType(transcript);
             if (billType) {
-                log(`→ Direct bill: ${billType}`);
+                log(`→ Bill: ${billType}`);
                 convStateRef.current = CONV_STATES.BILL_INPUT;
                 setScreen('guest');
                 navigate(`/bill/${billType}`);
@@ -400,9 +410,8 @@ const VoiceAgent = memo(function VoiceAgent({
                 return;
             }
 
-            // Complaint
             if (matchesKeywords(transcript, COMPLAINT_KEYWORDS)) {
-                log('→ Direct complaint');
+                log('→ Complaint');
                 convStateRef.current = CONV_STATES.COMPLAINT_CAT;
                 setScreen('guest');
                 navigate('/complaint');
@@ -438,47 +447,51 @@ const VoiceAgent = memo(function VoiceAgent({
                 const result = await streamGeminiResponse(
                     transcript, L, `${screenRef.current} | ${window.location.pathname}`,
                     async (sentence, idx) => {
-                        if (bargedInRef.current) return;
+                        if (aborted()) return;
                         fullReply += (idx > 0 ? ' ' : '') + sentence;
                         setLastReply(fullReply);
                         if (idx === 0) { isSpeakingRef.current = true; setStatus('speaking'); firstSent = true; }
-                        if (!bargedInRef.current) await queueTTS(sentence, L);
+                        if (!aborted()) await queueTTS(sentence, L, myAbortId);
                     }
                 );
 
-                if (!firstSent && result.reply && !bargedInRef.current) {
+                if (!firstSent && result.reply && !aborted()) {
                     setLastReply(result.reply);
-                    await ttsSpeak(result.reply, L);
+                    await ttsSpeak(result.reply, L, myAbortId);
                 }
 
-                if (result.intent === 'navigate' && result.action_key) {
-                    const routes = { electricity: '/bill/electricity', water: '/bill/water', gas: '/bill/gas', complaint: '/complaint', home: '/' };
-                    if (routes[result.action_key]) navigate(routes[result.action_key]);
-                } else if (result.intent === 'set_screen') {
-                    if (result.action_key === 'quick_pay') { setScreen('guest'); navigate('/'); }
-                    else if (result.action_key === 'citizen_login') setScreen('citizen-auth');
-                } else if (result.intent === 'go_back') navigate(-1);
+                if (!aborted()) {
+                    if (result.intent === 'navigate' && result.action_key) {
+                        const routes = { electricity: '/bill/electricity', water: '/bill/water', gas: '/bill/gas', complaint: '/complaint', home: '/' };
+                        if (routes[result.action_key]) navigate(routes[result.action_key]);
+                    } else if (result.intent === 'set_screen') {
+                        if (result.action_key === 'quick_pay') { setScreen('guest'); navigate('/'); }
+                        else if (result.action_key === 'citizen_login') setScreen('citizen-auth');
+                    } else if (result.intent === 'go_back') navigate(-1);
+                }
 
             } catch (err) {
                 log(`❌ Gemini: ${err.message}`);
-                if (!bargedInRef.current) {
+                if (!aborted()) {
                     const r = getResponse('not_understood', L);
                     setLastReply(r);
-                    await ttsSpeak(r, L);
+                    await ttsSpeak(r, L, myAbortId);
                 }
             }
         } else {
-            const r = getResponse('not_understood', L);
-            setLastReply(r);
-            await ttsSpeak(r, L);
+            if (!aborted()) {
+                const r = getResponse('not_understood', L);
+                setLastReply(r);
+                await ttsSpeak(r, L, myAbortId);
+            }
         }
 
         isSpeakingRef.current = false;
-        if (isActiveRef.current && !bargedInRef.current) setStatus('listening');
+        if (isActiveRef.current && !aborted()) setStatus('listening');
         processingRef.current = false;
-    }, [navigate, setScreen, log, ttsSpeak, queueTTS, speakScreenGuidance]);
+    }, [navigate, setScreen, log, ttsSpeak, queueTTS, cancelAllSpeech]);
 
-    // ═══ SCREEN CHANGE DETECTION (gateway → auth, etc.) ═══
+    // ═══ SCREEN CHANGE → CANCEL OLD TTS + SPEAK NEW ════
 
     useEffect(() => {
         if (!isActiveRef.current || !voiceMode) return;
@@ -488,47 +501,64 @@ const VoiceAgent = memo(function VoiceAgent({
         lastScreenRef.current = screen;
 
         log(`📺 Screen: ${prevScreen} → ${screen}`);
-
-        // Don't speak on initial load or on idle
         if (!prevScreen || screen === 'idle') return;
+
+        // CANCEL whatever agent was saying about old page
+        cancelAllSpeech();
+        abortRef.current++;
+        processingRef.current = false;
 
         const g = SCREEN_GUIDANCE[screen];
         if (g) {
-            const text = g[langRef.current] || g.en;
-            // Delay slightly to let the page render and previous TTS finish
+            const transition = TRANSITION[langRef.current] || TRANSITION.en;
+            const guidance = g[langRef.current] || g.en;
+            // Use transition phrase if we were mid-speech
+            const fullText = (prevScreen && prevScreen !== 'idle') ? transition + guidance : guidance;
+
             setTimeout(async () => {
-                if (isActiveRef.current && !isSpeakingRef.current) {
+                if (isActiveRef.current) {
                     log(`📍 Screen guidance: ${screen}`);
-                    setLastReply(text);
-                    await ttsSpeak(text, langRef.current);
+                    setLastReply(fullText);
+                    await ttsSpeak(fullText, langRef.current);
                     if (isActiveRef.current) setStatus('listening');
                 }
-            }, 1200);
+            }, 500);
         }
-    }, [screen, voiceMode, log, ttsSpeak]);
+    }, [screen, voiceMode, log, ttsSpeak, cancelAllSpeech]);
 
-    // ═══ ROUTE CHANGE (URL: /bill/*, /complaint, /) ═══
+    // ═══ ROUTE CHANGE → CANCEL OLD TTS + SPEAK NEW ═════
 
     useEffect(() => {
         if (!isActiveRef.current || !voiceMode) return;
         const currentPath = location.pathname;
 
         if (currentPath !== lastRouteRef.current) {
+            const prevPath = lastRouteRef.current;
             lastRouteRef.current = currentPath;
+
+            log(`📍 Route: ${prevPath} → ${currentPath}`);
+
+            // CANCEL old speech
+            cancelAllSpeech();
+            abortRef.current++;
+            processingRef.current = false;
 
             const guidance = getPageGuidance(currentPath, langRef.current);
             if (guidance) {
-                log(`📍 Route → ${currentPath}`);
-                setLastReply(guidance);
+                // Add transition phrase if coming from another page
+                const transition = prevPath ? (TRANSITION[langRef.current] || TRANSITION.en) : '';
+                const fullText = transition + guidance;
+
                 setTimeout(async () => {
-                    if (isActiveRef.current && !isSpeakingRef.current) {
-                        await ttsSpeak(guidance, langRef.current);
+                    if (isActiveRef.current) {
+                        setLastReply(fullText);
+                        await ttsSpeak(fullText, langRef.current);
                         if (isActiveRef.current) setStatus('listening');
                     }
-                }, 600);
+                }, 400);
             }
         }
-    }, [location.pathname, voiceMode, log, ttsSpeak]);
+    }, [location.pathname, voiceMode, log, ttsSpeak, cancelAllSpeech]);
 
     // ═══ ACTIVATE ═══════════════════════════════════
 
@@ -542,6 +572,7 @@ const VoiceAgent = memo(function VoiceAgent({
         stopSpeaking();
         restartCountRef.current = 0;
         rePromptCountRef.current = 0;
+        abortRef.current = 0;
         lastRouteRef.current = window.location.pathname;
         lastScreenRef.current = screen;
         convStateRef.current = CONV_STATES.WAIT_PATH;
@@ -570,12 +601,13 @@ const VoiceAgent = memo(function VoiceAgent({
         isSpeakingRef.current = false;
         processingRef.current = false;
         convStateRef.current = CONV_STATES.INITIAL;
+        cancelAllSpeech();
         stopSpeaking();
         clearTimeout(silenceTimerRef.current);
         clearTimeout(rePromptTimerRef.current);
         try { recognitionRef.current?.abort(); } catch { }
         log('🔴 Deactivated');
-    }, [log]);
+    }, [log, cancelAllSpeech]);
 
     // Auto-activate
     useEffect(() => {
@@ -636,7 +668,7 @@ const VoiceAgent = memo(function VoiceAgent({
                     </div>
                     <button className="vo-bar-close"
                         onClick={status === 'speaking'
-                            ? () => { stopSpeaking(); isSpeakingRef.current = false; bargedInRef.current = true; setStatus('listening'); }
+                            ? () => { cancelAllSpeech(); abortRef.current++; processingRef.current = false; setStatus('listening'); }
                             : deactivateVoice}>
                         {status === 'speaking' ? '⏭' : '✕'}
                     </button>
