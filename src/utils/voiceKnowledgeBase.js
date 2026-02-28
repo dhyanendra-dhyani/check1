@@ -675,6 +675,291 @@ export const EXPANDED_QA = [
     },
 ];
 
+// ══════════════════════════════════════════════════════
+// MEGA KB — 60+ entries: step-by-step flows, edge cases,
+// conversational, contextual, blind-mode, elderly help
+// ══════════════════════════════════════════════════════
+
+export const MEGA_QA = [
+    // ── STEP-BY-STEP BILL PAYMENT ──
+    {
+        keywords: ['bill kaise bhare', 'bill kaise bharna', 'बिल कैसे भरें', 'how to pay bill', 'bill bharna sikhao', 'process kya hai'],
+        answer: { hi: 'बिल भरने के 4 स्टेप: 1️⃣ बिल टाइप चुनें (बिजली/पानी/गैस) 2️⃣ Consumer Number डालें 3️⃣ बिल देखें और \"Pay\" दबाएं 4️⃣ UPI/Card/Cash से भुगतान करें। बस! रसीद मिल जाएगी।', en: '4 steps: 1️⃣ Choose bill type 2️⃣ Enter consumer number 3️⃣ View bill & press Pay 4️⃣ Pay via UPI/Card/Cash. Done! Receipt generated.' }
+    },
+    {
+        keywords: ['consumer number kaise dale', 'number type kaise kare', 'number kaise likhe', 'कंज्यूमर नंबर कैसे डालें'],
+        answer: { hi: 'नीचे नंबर पैड दिख रहा है — 0-9 बटन से नंबर डालें। PSEB- जैसे अक्षर ऊपर टेक्स्ट बॉक्स में टाइप करें। ⌫ से मिटाएं, C से सब साफ।', en: 'Use the number pad below (0-9). Type letters like PSEB- in the text box above. ⌫ to delete, C to clear all.' }
+    },
+    {
+        keywords: ['fetch bill', 'bill lao', 'bill dikhao', 'बिल लाओ', 'बिल दिखाओ', 'bill nikalo'],
+        answer: { hi: 'Consumer number डालने के बाद \"Fetch Bill\" बटन दबाएं — 2-3 सेकंड में बिल आ जाएगा। नाम, राशि, यूनिट, ड्यू डेट सब दिखेगा।', en: 'After entering consumer number, press \"Fetch Bill\" — bill loads in 2-3 seconds with name, amount, units, due date.' }
+    },
+    {
+        keywords: ['pay kaise kare', 'bhugtan kaise', 'payment kaise karu', 'भुगतान कैसे करूं', 'kaise pay hoga'],
+        answer: { hi: 'बिल दिखने के बाद \"Pay Now\" दबाएं। 3 तरीके: UPI (QR स्कैन करें), Card (नंबर डालें), Cash (नोट मशीन में डालें)। 2-3 सेकंड में हो जाएगा।', en: 'After bill shows, press \"Pay Now\". 3 ways: UPI (scan QR), Card (enter details), Cash (insert notes). Takes 2-3 seconds.' }
+    },
+
+    // ── AADHAAR AUTH DETAILS ──
+    {
+        keywords: ['angootha kaise lagaye', 'fingerprint kaise', 'thumb kahan lagaye', 'अंगूठा कैसे लगाएं', 'scanner kahan hai'],
+        answer: { hi: 'नीचे बायोमेट्रिक स्कैनर है — उस पर अंगूठा या उंगली रखें। 2-3 सेकंड तक रखें, हरी लाइट आएगी तो हो गया। अंगूठा साफ और सूखा होना चाहिए।', en: 'Place thumb on the scanner below. Hold 2-3 seconds until green light. Keep thumb clean and dry.' }
+    },
+    {
+        keywords: ['iris kaise', 'aankh kaise', 'eye scan', 'आँख स्कैन कैसे', 'aankh dikhao'],
+        answer: { hi: 'कैमरे की तरफ सीधा देखें — आँख खुली रखें, चश्मा उतार दें। 2-3 सेकंड में स्कैन हो जाएगा। अगर नहीं हो तो OTP पर जाएं।', en: 'Look straight at camera, eye open, remove glasses. 2-3 seconds. If it fails, try OTP instead.' }
+    },
+    {
+        keywords: ['otp kaise use kare', 'otp process', 'mobile number dalu', 'ओटीपी कैसे', 'otp kahan dale'],
+        answer: { hi: 'OTP: 1️⃣ आधार से लिंक मोबाइल नंबर डालें 2️⃣ \"Send OTP\" दबाएं 3️⃣ फोन पर 6 अंक का कोड आएगा 4️⃣ कोड डालें → लॉगिन! 2 मिनट में expire होता है।', en: 'OTP: 1️⃣ Enter Aadhaar-linked mobile 2️⃣ Press Send OTP 3️⃣ Enter 6-digit code from phone 4️⃣ Login! Expires in 2 min.' }
+    },
+    {
+        keywords: ['biometric fail', 'angootha nahi laga', 'scan fail', 'बायोमेट्रिक फेल', 'finger not working'],
+        answer: { hi: 'अंगूठा नहीं लगा? अंगूठा साफ करें, ज़ोर से दबाएं। नहीं हो तो Iris (आँख) या OTP ट्राई करें — तीनों तरीके हैं।', en: 'Thumb failed? Clean and press firmly. Try Iris or OTP — all 3 methods available.' }
+    },
+
+    // ── DASHBOARD NAVIGATION ──
+    {
+        keywords: ['dashboard me kya hai', 'dashboard dikhao', 'डॅशबोर्ड', 'mera account', 'mere bills', 'मेरे बिल'],
+        answer: { hi: 'डैशबोर्ड में 3 भाग: 1️⃣ Your Bills — बकाया बिल दिखते हैं 2️⃣ Your Complaints — पुरानी शिकायतें 3️⃣ Services — नया कनेक्शन, नाम बदलाव, सर्टिफिकेट। बोलें क्या देखना है!', en: 'Dashboard has 3 sections: 1️⃣ Your Bills 2️⃣ Your Complaints 3️⃣ Services (new connection, name change, cert). What to see?' }
+    },
+    {
+        keywords: ['pending bill', 'bakaya bill', 'unpaid', 'बकाया बिल', 'kitna bacha', 'koi bill bacha'],
+        answer: { hi: 'बकाया बिल डैशबोर्ड में \"Your Bills\" सेक्शन में दिखते हैं — लाल = overdue, पीला = जल्दी भरें, हरा = भर दिया। किसी पर क्लिक करें भुगतान के लिए।', en: 'Pending bills in \"Your Bills\" — red = overdue, yellow = due soon, green = paid. Click any to pay.' }
+    },
+
+    // ── PAYMENT CONFIRMATION & RECEIPT ──
+    {
+        keywords: ['transaction id', 'ट्रांजैक्शन', 'reference number', 'ref number', 'payment proof'],
+        answer: { hi: 'Transaction ID भुगतान सफल होने पर मिलता है — TXN- से शुरू होता है। रसीद में भी लिखा होता है। इसे लिख लें या PDF डाउनलोड करें।', en: 'Transaction ID starts with TXN- after payment. It\'s on the receipt. Note it down or download PDF.' }
+    },
+    {
+        keywords: ['receipt kahan', 'raseed kahan', 'pdf kahan', 'रसीद कहाँ', 'download kahan se'],
+        answer: { hi: 'भुगतान के बाद हरी स्क्रीन पर \"📥 Download Receipt\" बटन दिखता है — वहाँ से PDF मिलेगी। प्रिंट भी कर सकते हैं।', en: 'After payment, green screen shows \"📥 Download Receipt\" button — get PDF there. Print option also available.' }
+    },
+    {
+        keywords: ['print kaise', 'छापो', 'printer', 'प्रिंट कैसे', 'print receipt'],
+        answer: { hi: '\"🖨️ Print\" बटन दबाएं — रसीद प्रिंट हो जाएगी। अगर प्रिंटर नहीं है तो PDF डाउनलोड करें।', en: 'Press \"🖨️ Print\" button. If no printer, download PDF instead.' }
+    },
+
+    // ── DOUBLE/PARTIAL PAYMENT EDGE CASES ──
+    {
+        keywords: ['double payment', 'do baar', 'दो बार', 'duplicate', 'dobara cut', 'paisa kat gaya'],
+        answer: { hi: 'दो बार कट गया? चिंता न करें — Transaction ID नोट करें, 48 घंटे में extra amount refund हो जाएगा। शिकायत भी दर्ज कर सकते हैं।', en: 'Double charged? Note Transaction ID — extra refunded in 48 hours. Can also file a complaint.' }
+    },
+    {
+        keywords: ['partial payment', 'aadha pay', 'kam pay', 'आधा', 'कम भरना', 'can i pay less'],
+        answer: { hi: 'पूरा बिल भरना ज़रूरी है — आधा भुगतान नहीं हो सकता। पूरी राशि UPI, Card, या Cash से भरें।', en: 'Full amount required — partial payment not allowed. Pay full via UPI, Card, or Cash.' }
+    },
+    {
+        keywords: ['late fee', 'jur', 'fine', 'penalty', 'जुर्माना', 'लेट फीस', 'surcharge'],
+        answer: { hi: 'ड्यू डेट के बाद जुर्माना लग सकता है (2-5%)। समय पर भरें! बिल में ड्यू डेट लिखी होती है।', en: 'Late fee 2-5% after due date. Pay on time! Due date shown on bill.' }
+    },
+
+    // ── CONVERSATIONAL — FRUSTRATION, URGENCY ──
+    {
+        keywords: ['kaam nahi kar raha', 'काम नहीं कर रहा', 'not working', 'problem hai', 'stuck', 'अटक गया', 'hang ho gaya'],
+        answer: { hi: 'माफ़ कीजिए! स्क्रीन छुएं और शुरू से आएं, या \"वापस\" बोलें। अगर फिर भी अटके तो मुझसे बोलें — मैं गाइड करूँगा।', en: 'Sorry! Touch screen to restart, or say \"go back\". If still stuck, tell me — I\'ll guide you.' }
+    },
+    {
+        keywords: ['jaldi karo', 'जल्दी', 'hurry', 'fast', 'quick', 'time nahi hai', 'urgent'],
+        answer: { hi: 'जी हाँ! सीधे बोलें — \"बिजली बिल\" या \"पानी बिल\"। मैं तुरंत ले जाऊंगा, कोई wait नहीं!', en: 'Yes! Just say \"electricity bill\" or \"water bill\". I\'ll take you directly, no wait!' }
+    },
+    {
+        keywords: ['bore ho gaya', 'बोर', 'bored', 'boring', 'bekaar', 'बेकार'],
+        answer: { hi: 'अरे! 😄 चलो जल्दी काम निपटा लेते हैं — बिल भरें या शिकायत दर्ज करें। 2 मिनट में हो जाएगा!', en: 'Hey! 😄 Let\'s finish quickly — pay a bill or file a complaint. Done in 2 minutes!' }
+    },
+    {
+        keywords: ['acha nahi laga', 'pasand nahi', 'पसंद नहीं', 'not good', 'improve karo', 'बहतर करो'],
+        answer: { hi: 'आपकी राय ज़रूरी है! \"शिकायत\" में \"Other\" → feedback लिखें। हम सुधारेंगे। 🙏', en: 'Your feedback matters! \"Complaint\" → \"Other\" → write feedback. We\'ll improve. 🙏' }
+    },
+
+    // ── ELDERLY & FIRST-TIME USERS ──
+    {
+        keywords: ['pehli baar', 'first time', 'naya hoon', 'पहली बार', 'नया हूँ', 'sikhao', 'सिखाओ', 'kaise use kare'],
+        answer: { hi: 'कोई बात नहीं, मैं हूँ ना! 😊 बस बोलिए क्या करना है — \"बिजली बिल भरना है\", \"शिकायत करनी है\"। मैं हर स्टेप पर गाइड करूँगा। डरिए मत!', en: 'No worries, I\'m here! 😊 Just say what you need — I\'ll guide every step. Don\'t worry!' }
+    },
+    {
+        keywords: ['samajh nahi aata', 'mushkil', 'difficult', 'complex', 'मुश्किल', 'complicated', 'confusing'],
+        answer: { hi: 'बिल्कुल आसान है! बस 3 बातें: 1️⃣ बोलें क्या करना है 2️⃣ Consumer number डालें 3️⃣ Pay करें। मैं हर कदम बोलकर बताऊंगा।', en: 'Super easy! 3 things: 1️⃣ Tell me what to do 2️⃣ Enter number 3️⃣ Pay. I\'ll guide every step.' }
+    },
+    {
+        keywords: ['budhe', 'old', 'senior citizen', 'बुजुर्ग', 'dada ji', 'nani', 'grandfather', 'grandmother'],
+        answer: { hi: 'बुजुर्गों के लिए सबसे आसान — बोलकर सब हो जाएगा! \"बिजली बिल\" बोलें, बाकी सब मैं करा दूंगा। ♿ बटन दबाएं तो और आसान हो जाएगा।', en: 'Easiest for seniors — just speak! Say \"electricity bill\", I\'ll handle the rest. Press ♿ for extra guidance.' }
+    },
+
+    // ── BLIND MODE SPECIFIC ──
+    {
+        keywords: ['blind mode kya', 'ब्लाइंड मोड क्या', 'accessibility kya', 'drishti badhit', 'visually impaired'],
+        answer: { hi: 'Blind Mode में मैं सब कुछ बोलकर बताता हूँ — स्क्रीन पर क्या है, कितने पैसे हैं, कौन सा बटन दबाना है। ♿ बटन दबाएं ऊपर दाईं तरफ।', en: 'Blind Mode: I describe everything — screen content, amounts, which button to press. Press ♿ button top-right.' }
+    },
+    {
+        keywords: ['screen pe kya hai', 'kya dikh raha', 'स्क्रीन पर क्या है', 'batao kya hai', 'screen padhke batao'],
+        answer: { hi: 'Blind Mode चालू करें (♿ बटन) — मैं स्क्रीन की हर चीज़ बोलकर बताऊंगा। या बोलें \"मदद\" — मैं बताऊंगा क्या हो रहा है।', en: 'Enable Blind Mode (♿). I\'ll read everything on screen. Or say \"help\" — I\'ll describe what\'s happening.' }
+    },
+
+    // ── SPECIFIC BILL QUERIES ──
+    {
+        keywords: ['bijli kitni aayi', 'electricity kitna', 'unit kitne', 'बिजली कितनी', 'consumption kitna'],
+        answer: { hi: 'Consumer number डालें → \"Fetch Bill\" → यूनिट्स और राशि दोनों दिखेंगी। Demo: PSEB-123456 = 85 kWh, ₹450।', en: 'Enter consumer number → Fetch Bill → units and amount shown. Demo: PSEB-123456 = 85 kWh, ₹450.' }
+    },
+    {
+        keywords: ['pani kitna', 'water bill kitna', 'पानी कितना', 'water consumption'],
+        answer: { hi: 'पानी बिल: Consumer number (PHED-XXXXXX) डालें → Fetch Bill। Demo: PHED-789012 = 12 KL, ₹280।', en: 'Water bill: enter PHED-XXXXXX → Fetch Bill. Demo: PHED-789012 = 12 KL, ₹280.' }
+    },
+    {
+        keywords: ['gas kitna', 'cylinder kitna', 'गैस कितना', 'lpg bill kitna'],
+        answer: { hi: 'गैस बिल: LPG ID (GPL-XXXXXX) डालें → Fetch Bill। Demo: GPL-345678 = 3 सिलेंडर, ₹620।', en: 'Gas bill: enter GPL-XXXXXX → Fetch Bill. Demo: GPL-345678 = 3 cylinders, ₹620.' }
+    },
+
+    // ── UPI SPECIFIC ──
+    {
+        keywords: ['upi kaise kare', 'upi se kaise', 'qr scan kaise', 'यूपीआई कैसे', 'gpay se kaise', 'phonepe se kaise'],
+        answer: { hi: 'UPI: 1️⃣ \"UPI\" बटन दबाएं 2️⃣ QR कोड दिखेगा 3️⃣ GPay/PhonePe/Paytm से QR स्कैन करें 4️⃣ Amount डालें → Pay। 10 सेकंड में हो जाएगा!', en: 'UPI: 1️⃣ Press UPI 2️⃣ QR shown 3️⃣ Scan with GPay/PhonePe/Paytm 4️⃣ Enter amount → Pay. 10 seconds!' }
+    },
+    {
+        keywords: ['card se kaise', 'debit card', 'credit card', 'कार्ड से कैसे', 'card swipe'],
+        answer: { hi: 'Card: 1️⃣ \"Card\" बटन दबाएं 2️⃣ कार्ड स्वाइप करें या नंबर डालें 3️⃣ PIN डालें → Pay। Debit और Credit दोनों चलते हैं।', en: 'Card: 1️⃣ Press Card 2️⃣ Swipe or enter number 3️⃣ Enter PIN → Pay. Debit & Credit both work.' }
+    },
+    {
+        keywords: ['cash se kaise', 'note kaise dalu', 'paisa machine me', 'कैश से कैसे', 'नोट डालने'],
+        answer: { hi: 'Cash: 1️⃣ \"Cash\" बटन दबाएं 2️⃣ नोट एक-एक करके मशीन में डालें (₹10-500) 3️⃣ पूरी राशि डालें → \"Confirm\" दबाएं। बाकी पैसे मशीन वापस देगी।', en: 'Cash: 1️⃣ Press Cash 2️⃣ Insert notes one by one (₹10-500) 3️⃣ Full amount → Confirm. Machine returns change.' }
+    },
+
+    // ── COMPLAINT FOLLOW-UPS ──
+    {
+        keywords: ['shikayat kab hogi', 'complaint kab solve', 'kitne din', 'शिकायत कब', 'action kab'],
+        answer: { hi: '48 घंटे में कार्रवाई होती है। Citizen Login से \"My Complaints\" में स्टेटस देखें। हरा = हो गया, पीला = चल रहा है।', en: 'Action within 48 hours. Check status in \"My Complaints\" after login. Green = done, yellow = in progress.' }
+    },
+    {
+        keywords: ['shikayat cancel', 'complaint cancel', 'शिकायत कैंसल', 'hata do', 'delete complaint'],
+        answer: { hi: 'शिकायत कैंसल करने के लिए Citizen Login करें → \"My Complaints\" → शिकायत खोलें → \"Cancel\" बटन।', en: 'To cancel: Login → My Complaints → open complaint → Cancel button.' }
+    },
+    {
+        keywords: ['ek aur shikayat', 'one more complaint', 'और शिकायत', 'nai shikayat', 'another complaint'],
+        answer: { hi: 'ज़रूर! \"शिकायत\" बोलें या बटन दबाएं — नई शिकायत दर्ज करें। कितनी भी शिकायतें कर सकते हैं!', en: 'Sure! Say \"complaint\" — file as many as you want!' }
+    },
+
+    // ── NAVIGATION COMMANDS ──
+    {
+        keywords: ['electricity page', 'bijli page', 'बिजली पेज', 'electricity pe le jao', 'bijli wala page'],
+        answer: { hi: 'बिजली बिल पेज पर ले जा रहा हूँ! Consumer number तैयार रखें।', en: 'Going to electricity bill page! Keep consumer number ready.' },
+        action: 'navigate_bill_electricity'
+    },
+    {
+        keywords: ['water page', 'pani page', 'पानी पेज', 'water pe le jao', 'pani wala page'],
+        answer: { hi: 'पानी बिल पेज पर ले जा रहा हूँ! Consumer number तैयार रखें।', en: 'Going to water bill page! Keep consumer number ready.' },
+        action: 'navigate_bill_water'
+    },
+    {
+        keywords: ['gas page', 'gas pe le jao', 'गैस पेज', 'gas wala page'],
+        answer: { hi: 'गैस बिल पेज पर ले जा रहा हूँ! LPG ID तैयार रखें।', en: 'Going to gas bill page! Keep LPG ID ready.' },
+        action: 'navigate_bill_gas'
+    },
+    {
+        keywords: ['complaint page', 'shikayat page', 'शिकायत पेज', 'complaint pe le jao'],
+        answer: { hi: 'शिकायत पेज पर ले जा रहा हूँ! बताइए क्या समस्या है।', en: 'Going to complaint page! Tell me the issue.' },
+        action: 'navigate_complaint'
+    },
+
+    // ── WHAT IF QUESTIONS ──
+    {
+        keywords: ['galat bill', 'wrong bill', 'गलत बिल', 'bill galat hai', 'amount galat'],
+        answer: { hi: 'बिल गलत लग रहा है? शिकायत दर्ज करें — \"शिकायत\" → \"Other\" → \"Bill amount incorrect\" लिखें। Consumer number ज़रूर डालें।', en: 'Wrong bill? File complaint → Other → \"Bill amount incorrect\". Include consumer number.' }
+    },
+    {
+        keywords: ['bill nahi aaya', 'bill generate nahi', 'बिल नहीं आया', 'no bill', 'bill missing'],
+        answer: { hi: 'बिल नहीं आया? Consumer number डालें, अगर बिल generate नहीं हुआ तो बिजली/पानी ऑफिस से संपर्क करें। या शिकायत दर्ज करें।', en: 'No bill? Enter consumer number. If not generated, contact utility office or file complaint.' }
+    },
+    {
+        keywords: ['kisi aur ka bill', 'dusre ka bill', 'someone else', 'किसी और का', 'relative ka', 'padosi ka', 'neighbor'],
+        answer: { hi: 'किसी और का बिल? Guest Mode से भरें — बस उनका Consumer Number डालें। लॉगिन ज़रूरी नहीं! \"Guest\" बोलें।', en: 'Someone else\'s bill? Use Guest Mode — just enter their consumer number. No login needed! Say \"Guest\".' }
+    },
+
+    // ── PROPERTY TAX SPECIFIC ──
+    {
+        keywords: ['property tax kaise', 'ghar ka tax kaise', 'प्रॉपर्टी टैक्स कैसे', 'house tax kaise bhare', 'tax process'],
+        answer: { hi: 'Property Tax: 1️⃣ होम पेज पर 🏠 बटन 2️⃣ Property ID डालें 3️⃣ Tax amount दिखेगा 4️⃣ UPI/Card/Cash से भरें। साल में एक बार भरना होता है।', en: 'Property Tax: 1️⃣ Press 🏠 on home 2️⃣ Enter Property ID 3️⃣ See amount 4️⃣ Pay via UPI/Card/Cash. Once a year.' }
+    },
+    {
+        keywords: ['property id kahan', 'property number', 'प्रॉपर्टी आईडी', 'ghar ka number', 'tax id'],
+        answer: { hi: 'Property ID आपके पिछले टैक्स रसीद पर या नगरपालिका ऑफिस से मिलेगी। Demo में कोई भी number चलेगा।', en: 'Property ID is on your previous tax receipt or from municipal office. Demo: any number works.' }
+    },
+
+    // ── EMOTIONAL & POLITE ──
+    {
+        keywords: ['maaf', 'sorry', 'galti', 'माफ', 'mistake', 'गलती'],
+        answer: { hi: 'कोई बात नहीं! 😊 गलती हो सकती है। \"वापस\" बोलें और फिर से शुरू करें। मैं यहाँ हूँ।', en: 'No worries! 😊 Mistakes happen. Say \"go back\" and start again. I\'m here.' }
+    },
+    {
+        keywords: ['bahut acha', 'great', 'awesome', 'amazing', 'बहुत अच्छा', 'excellent', 'perfect', 'shandar', 'शानदार'],
+        answer: { hi: 'शुक्रिया! 😊 और कोई काम हो तो बताइए — मैं हमेशा तैयार हूँ!', en: 'Thanks! 😊 Need anything else? I\'m always ready!' }
+    },
+    {
+        keywords: ['haso', 'joke', 'mazak', 'funny', 'hasao', 'मज़ाक', 'हंसाओ'],
+        answer: { hi: 'एक बिल भरो, एक मुस्कान मुफ्त! 😄 चलो कोई बिल भर दें?', en: 'Pay one bill, get one smile free! 😄 Shall we pay a bill?' }
+    },
+
+    // ── MULTI-BILL ──
+    {
+        keywords: ['sab bill', 'all bills', 'सब बिल', 'sabka bill', 'ek saath', 'together', 'एक साथ'],
+        answer: { hi: 'एक-एक करके भर सकते हैं — पहले बिजली, फिर पानी, फिर गैस। हर बार \"और बिल\" बोल दीजिए, मैं अगले पर ले जाऊंगा।', en: 'Pay one by one — electricity, then water, then gas. Say \"another bill\" after each. I\'ll navigate.' }
+    },
+    {
+        keywords: ['aur bill', 'ek aur', 'another bill', 'और बिल', 'एक और', 'next bill', 'dusra bill'],
+        answer: { hi: 'ज़रूर! कौन सा — बिजली ⚡, पानी 💧, या गैस 🔥?', en: 'Sure! Which — electricity ⚡, water 💧, or gas 🔥?' }
+    },
+
+    // ── NEW CONNECTION DETAILS ──
+    {
+        keywords: ['naya bijli connection', 'new electricity', 'नया बिजली कनेक्शन', 'meter lagwana'],
+        answer: { hi: 'नया बिजली कनेक्शन: Citizen Login → Dashboard → \"New Connection\" → फॉर्म भरें → दस्तावेज अपलोड करें। 7-10 दिन में कनेक्शन।', en: 'New electricity: Login → Dashboard → New Connection → form → upload documents. Connected in 7-10 days.' }
+    },
+    {
+        keywords: ['naya pani connection', 'new water', 'नया पानी कनेक्शन', 'nal lagwana'],
+        answer: { hi: 'नया पानी कनेक्शन: Citizen Login → Dashboard → \"New Connection\" → Water चुनें → फॉर्म → दस्तावेज। 10-15 दिन।', en: 'New water: Login → Dashboard → New Connection → Water → form → docs. 10-15 days.' }
+    },
+    {
+        keywords: ['naya gas connection', 'new gas', 'नया गैस कनेक्शन', 'gas lagwana', 'pipeline lagwana'],
+        answer: { hi: 'नया गैस कनेक्शन: Citizen Login → Dashboard → \"New Connection\" → Gas/Pipeline चुनें। आधार, एड्रेस प्रूफ ज़रूरी। 15-20 दिन।', en: 'New gas: Login → Dashboard → New Connection → Gas/Pipeline. Aadhaar + address proof needed. 15-20 days.' }
+    },
+
+    // ── DOCUMENTS NEEDED ──
+    {
+        keywords: ['document chahiye', 'kya kya chahiye', 'दस्तावेज', 'papers', 'kaagaz', 'कागज़', 'documents required'],
+        answer: { hi: 'दस्तावेज: 1️⃣ आधार कार्ड (ज़रूरी) 2️⃣ एड्रेस प्रूफ (बिजली बिल/राशन कार्ड) 3️⃣ पासपोर्ट फोटो। नया कनेक्शन/नाम बदलाव के लिए।', en: 'Documents: 1️⃣ Aadhaar (required) 2️⃣ Address proof 3️⃣ Passport photo. For new connection/name change.' }
+    },
+
+    // ── SAFETY & TRUST ──
+    {
+        keywords: ['dhokha', 'fraud', 'scam', 'fake', 'धोखा', 'फ्रॉड', 'cheat'],
+        answer: { hi: 'SUVIDHA Setu सरकारी है — C-DAC द्वारा बना। भुगतान सुरक्षित है, Transaction ID मिलता है। किसी को OTP या PIN न बताएं!', en: 'SUVIDHA Setu is government-backed by C-DAC. Payments are secure with Transaction ID. Never share OTP/PIN!' }
+    },
+    {
+        keywords: ['data safe', 'information safe', 'डेटा सेफ', 'meri jaankari', 'privacy'],
+        answer: { hi: 'आपका डेटा 100% सुरक्षित — e-Pramaan encrypted है। बायोमेट्रिक data store नहीं होता। आधार सिर्फ verify के लिए।', en: 'Your data is 100% secure — e-Pramaan encrypted. Biometrics not stored. Aadhaar only for verification.' }
+    },
+
+    // ── GENERAL GREETINGS (more variations) ──
+    {
+        keywords: ['jai shri ram', 'jay shree krishna', 'radhe radhe', 'waheguru', 'जय श्री राम', 'राधे राधे', 'वाहेगुरु'],
+        answer: { hi: 'जी 🙏 स्वागत है SUVIDHA Setu पर! बताइए क्या सेवा चाहिए?', en: 'Welcome to SUVIDHA Setu! 🙏 What service do you need?' }
+    },
+    {
+        keywords: ['shubh prabhat', 'good night', 'शुभ प्रभात', 'शुभ रात्रि', 'suprabhat'],
+        answer: { hi: 'शुभकामनाएं! 🙏 SUVIDHA Setu 24/7 उपलब्ध है। बताइए क्या करना है?', en: 'Greetings! 🙏 SUVIDHA Setu is 24/7. What can I do?' }
+    },
+
+    // ── LANGUAGE HELP ──
+    {
+        keywords: ['hindi me bolo', 'hindi mein', 'हिंदी में बोलो', 'hindi samjhao'],
+        answer: { hi: 'जी, मैं हिंदी में बात कर रहा हूँ! बताइए क्या करना है?', en: 'Sure, switching to Hindi context! Tell me what you need?' }
+    },
+    {
+        keywords: ['english me bolo', 'english mein', 'अंग्रेजी में', 'english please'],
+        answer: { hi: 'Okay, I\'ll speak in English. What would you like to do?', en: 'Sure! What would you like to do?' }
+    },
+];
+
 // ── HELPER FUNCTIONS ────────────────────────────────
 
 export function matchesKeywords(text, keywords) {
@@ -712,7 +997,7 @@ export function detectPaymentMethod(text) {
  */
 export function findCommonAnswer(text, lang) {
     const lower = text.toLowerCase();
-    const allQA = [...COMMON_QA, ...EXPANDED_QA];
+    const allQA = [...COMMON_QA, ...EXPANDED_QA, ...MEGA_QA];
     for (const qa of allQA) {
         if (qa.keywords.some(k => lower.includes(k))) {
             return {
