@@ -58,7 +58,7 @@ const LangButton = memo(function LangButton({ lang, isSelected, onSelect }) {
     );
 });
 
-export default function IdleScreen({ onStart, lang, setLang }) {
+export default function IdleScreen({ onStart, lang, setLang, blindMode, setBlindMode }) {
     const [step, setStep] = useState(STEP_LANG);
     const [regionLangs, setRegionLangs] = useState([]);
     const [allLangs, setAllLangs] = useState([]);
@@ -202,15 +202,35 @@ export default function IdleScreen({ onStart, lang, setLang }) {
             window.speechSynthesis.speak(u);
         } catch { }
 
-        setTimeout(() => onStart?.(true), 800);
+        setTimeout(() => onStart?.(true, false), 800);
     }, [onStart, selectedLang]);
+
+    const chooseBlind = useCallback(() => {
+        if (isWakingRef.current) return;
+        isWakingRef.current = true;
+        window.speechSynthesis?.cancel();
+        try { recognitionRef.current?.abort(); } catch { }
+        setBlindMode?.(true);
+
+        const blindConfirm = selectedLang === 'hi'
+            ? 'एक्सेसिबिलिटी मोड चालू। मैं आपको हर चीज़ बोलकर बताऊँगी।'
+            : 'Accessibility mode enabled. I will describe everything to you.';
+        try {
+            const u = new SpeechSynthesisUtterance(blindConfirm);
+            u.lang = getLang(selectedLang).speechCode;
+            u.rate = 1;
+            window.speechSynthesis.speak(u);
+        } catch { }
+
+        setTimeout(() => onStart?.(true, true), 1000);
+    }, [onStart, selectedLang, setBlindMode]);
 
     const chooseTouch = useCallback(() => {
         if (isWakingRef.current) return;
         isWakingRef.current = true;
         window.speechSynthesis?.cancel();
         try { recognitionRef.current?.abort(); } catch { }
-        setTimeout(() => onStart?.(false), 300);
+        setTimeout(() => onStart?.(false, false), 300);
     }, [onStart]);
 
     // Cleanup
@@ -356,6 +376,21 @@ export default function IdleScreen({ onStart, lang, setLang }) {
                                 </div>
                             </button>
                         </div>
+
+                        {/* Accessibility Mode Button */}
+                        <button onClick={chooseBlind}
+                            className="w-full max-w-[356px] rounded-2xl p-4 cursor-pointer border-2 border-amber-500/40 hover:border-amber-400 hover:scale-[1.01] active:scale-[0.98] transition-all flex items-center gap-4 mb-4"
+                            style={{ background: 'linear-gradient(160deg, rgba(245,158,11,0.2), rgba(245,158,11,0.05))' }}>
+                            <span className="text-3xl">♿</span>
+                            <div className="text-left">
+                                <p className="text-white font-bold text-base">
+                                    {selectedLang === 'hi' ? 'दृष्टिबाधित मोड' : selectedLang === 'pa' ? 'ਦ੍ਰਿਸ਼ਟੀਬਾਧਿਤ ਮੋਡ' : 'Accessibility Mode'}
+                                </p>
+                                <p className="text-white/50 text-xs">
+                                    {selectedLang === 'hi' ? 'सब कुछ बोलकर बताया जाएगा' : selectedLang === 'pa' ? 'ਸਭ ਕੁਝ ਬੋਲ ਕੇ ਦੱਸਿਆ ਜਾਵੇਗਾ' : 'Full voice guidance — reads everything on screen'}
+                                </p>
+                            </div>
+                        </button>
 
                         {/* Listening indicator */}
                         <div className={`flex items-center gap-2 px-4 py-2 rounded-full transition-all ${listenStatus === 'listening' ? 'bg-indigo-500/20 border border-indigo-500/30' : listenStatus === 'heard' ? 'bg-green-500/20 border border-green-500/30' : 'bg-white/10 border border-white/10'}`}>

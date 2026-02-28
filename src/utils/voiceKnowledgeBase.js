@@ -496,6 +496,185 @@ export const COMMON_QA = [
     },
 ];
 
+// ══════════════════════════════════════════════════════
+// EXPANDED ENTRIES — Greetings, Casual, Errors, FASTag, etc.
+// ══════════════════════════════════════════════════════
+
+export const EXPANDED_QA = [
+    // ── GREETINGS ──
+    {
+        keywords: ['namaste', 'namaskar', 'hello', 'hi', 'hey', 'good morning', 'good evening', 'good afternoon', 'नमस्ते', 'नमस्कार', 'प्रणाम', 'ram ram', 'राम राम', 'sat sri akal', 'jai hind', 'जय हिंद'],
+        answer: { hi: 'नमस्ते! 🙏 मैं SUVIDHA Setu हूँ। बताइए — बिल भरना है, शिकायत दर्ज करनी है, या कुछ और?', en: 'Hello! 🙏 I\'m SUVIDHA Setu. Pay a bill, file a complaint, or something else?' },
+    },
+    {
+        keywords: ['thank', 'thanks', 'shukriya', 'dhanyavad', 'धन्यवाद', 'शुक्रिया', 'thankyou', 'bohot acha', 'bahut accha', 'बहुत अच्छा', 'badiya', 'बढ़िया'],
+        answer: { hi: 'आपका धन्यवाद! 🙏 और कोई काम हो तो बताइए।', en: 'You\'re welcome! 🙏 Need anything else?' },
+    },
+    {
+        keywords: ['bye', 'goodbye', 'alvida', 'chalte hain', 'bas', 'aur nahi', 'अलविदा', 'बस', 'done', 'finish', 'khatam', 'खत्म'],
+        answer: { hi: 'धन्यवाद! फिर कभी ज़रूरत हो तो स्क्रीन छुएं। 🙏', en: 'Thank you! Touch the screen anytime. 🙏' },
+    },
+    {
+        keywords: ['kaise ho', 'kaisa hai', 'how are', 'theek ho', 'कैसे हो', 'ठीक हो', 'aap kaun', 'kaun ho', 'tum kaun', 'आप कौन', 'who are you'],
+        answer: { hi: 'मैं SUVIDHA Setu का assistant हूँ — हमेशा तैयार! 😊 बताइए क्या करना है?', en: 'I\'m SUVIDHA Setu\'s assistant — always ready! 😊 What can I do?' },
+    },
+    {
+        keywords: ['repeat', 'dubara', 'dobara', 'fir se', 'phir se', 'again', 'kya bola', 'samjha nahi', 'दुबारा', 'दोबारा', 'फिर से', 'समझा नहीं', 'ek bar', 'pardon'],
+        answer: { hi: 'ज़रूर! बिजली/पानी/गैस बिल भरें, शिकायत दर्ज करें, या Property Tax। बोलिए क्या करना है?', en: 'Sure! Pay bills, complaints, or property tax. What would you like?' },
+    },
+    {
+        keywords: ['confused', 'pata nahi', 'nahi pata', 'dont know', 'samajh nahi', 'kuch nahi', 'पता नहीं', 'समझ नहीं', 'kya karu', 'क्या करूं', 'not sure'],
+        answer: { hi: 'कोई बात नही! "बिजली", "पानी", "गैस" बोलें बिल के लिए। "शिकायत" बोलें रिपोर्ट के लिए।', en: 'No worries! Say "electricity", "water", "gas" for bills. "complaint" to report.' },
+    },
+
+    // ── FASTag, LPG, Meter ──
+    {
+        keywords: ['fastag', 'fast tag', 'toll', 'highway', 'फास्टैग', 'टोल', 'हाईवे', 'recharge fastag', 'tag balance'],
+        answer: { hi: 'FASTag रीचार्ज — Citizen Login करें, डैशबोर्ड में विकल्प है।', en: 'FASTag recharge — login as Citizen, option on dashboard.' },
+    },
+    {
+        keywords: ['lpg', 'subsidy', 'subsidi', 'gas subsidy', 'एलपीजी', 'सब्सिडी', 'cylinder subsidy', 'ujjwala', 'उज्ज्वला'],
+        answer: { hi: 'LPG सब्सिडी स्टेटस Citizen Login से देखें। सब्सिडी सीधे बैंक में आती है।', en: 'LPG subsidy — login as Citizen. Subsidy to bank directly.' },
+    },
+    {
+        keywords: ['meter reading', 'reading submit', 'reading dena', 'reading bhejo', 'मीटर रीडिंग', 'self reading'],
+        answer: { hi: 'मीटर रीडिंग — Citizen Login करें, फोटो खींचें या नंबर डालें।', en: 'Meter reading — login as Citizen, photo or manual entry.' },
+    },
+
+    // ── ERROR SCENARIOS ──
+    {
+        keywords: ['payment fail', 'fail ho gaya', 'nahi hua', 'error', 'decline', 'reject', 'फेल', 'नहीं हुआ', 'एरर'],
+        answer: { hi: 'भुगतान फेल? चिंता न करें! 24-48 घंटे में वापस आ जाएगा। दुबारा कोशिश करें।', en: 'Payment failed? Refund in 24-48 hours. Try again.' },
+    },
+    {
+        keywords: ['otp nahi aaya', 'otp not received', 'code nahi', 'ओटीपी नहीं', 'otp expire', 'otp galat', 'wrong otp'],
+        answer: { hi: 'OTP नहीं? 30 सेकंड रुकें, "Resend OTP" दबाएं। मोबाइल आधार से लिंक होना चाहिए।', en: 'No OTP? Wait 30 sec, "Resend OTP". Mobile must be Aadhaar-linked.' },
+    },
+    {
+        keywords: ['session', 'timeout', 'expire', 'logout', 'सेशन', 'टाइमआउट', 'time out'],
+        answer: { hi: '2 मिनट बाद session बंद हो जाता है। स्क्रीन छुएं, फिर से शुरू।', en: 'Session expires after 2 min. Touch screen to restart.' },
+    },
+    {
+        keywords: ['network error', 'no internet', 'signal nahi', 'net nahi', 'नेटवर्क', 'सिग्नल नहीं', 'wifi'],
+        answer: { hi: 'नेटवर्क समस्या? ऑफलाइन मोड चालू — भुगतान सेव होगा, बाद में सिंक।', en: 'Network issue? Offline mode — payments saved, sync later.' },
+    },
+    {
+        keywords: ['wrong number', 'galat number', 'गलत नंबर', 'bill nahi mila', 'not found', 'nahi mila', 'नहीं मिला'],
+        answer: { hi: 'बिल नहीं मिला? Number चेक करें। Demo: कोई भी number चलेगा।', en: 'Not found? Check number. Demo: any number works.' },
+    },
+
+    // ── CASH, REFUND ──
+    {
+        keywords: ['cash kaise', 'note kaise', 'paisa dalu', 'नोट कैसे', 'कैश कैसे', 'cash machine'],
+        answer: { hi: 'Cash: नोट एक-एक डालें (₹10-500)। पूरा amount पर "Pay" दबाएं।', en: 'Cash: Insert notes (₹10-500). Press "Pay" when done.' },
+    },
+    {
+        keywords: ['refund', 'wapas', 'paisa wapas', 'रिफंड', 'पैसा वापस', 'extra paisa'],
+        answer: { hi: 'रिफंड 24-48 घंटे में बैंक में। Transaction ID से track करें।', en: 'Refund 24-48 hrs to bank. Track via Transaction ID.' },
+    },
+
+    // ── HINGLISH BILL PHRASES WITH ACTIONS ──
+    {
+        keywords: ['bill bharna', 'bill bharna hai', 'बिल भरना', 'bill pay karna', 'bill dena', 'बिल देना'],
+        answer: { hi: 'ज़रूर! कौन सा? बिजली ⚡, पानी 💧, या गैस 🔥?', en: 'Sure! Electricity ⚡, Water 💧, or Gas 🔥?' },
+    },
+    {
+        keywords: ['bijli ka bill', 'bijli bill bharo', 'light bill', 'बिजली का बिल', 'बिजली बिल भरो', 'लाइट बिल', 'electricity bill pay'],
+        answer: { hi: 'बिजली बिल — Consumer number तैयार रखें (PSEB-XXXXXX)।', en: 'Electricity bill — keep consumer number ready (PSEB-XXXXXX).' },
+        action: 'navigate_bill_electricity',
+    },
+    {
+        keywords: ['pani ka bill', 'pani bill bharo', 'water bill pay', 'पानी का बिल', 'पानी बिल भरो'],
+        answer: { hi: 'पानी बिल — Consumer number तैयार रखें (PHED-XXXXXX)।', en: 'Water bill — keep consumer number ready (PHED-XXXXXX).' },
+        action: 'navigate_bill_water',
+    },
+    {
+        keywords: ['gas ka bill', 'gas bill bharo', 'गैस का बिल', 'गैस बिल भरो', 'rasoi gas', 'gas bill pay'],
+        answer: { hi: 'गैस बिल — LPG ID तैयार रखें (GPL-XXXXXX)।', en: 'Gas bill — keep LPG ID ready (GPL-XXXXXX).' },
+        action: 'navigate_bill_gas',
+    },
+
+    // ── ACCESSIBILITY ──
+    {
+        keywords: ['blind', 'netra', 'nazar', 'dikh nahi', 'accessibility', 'नेत्र', 'दिखाई नहीं', 'दृष्टिबाधित'],
+        answer: { hi: 'Accessibility: ♿ बटन दबाएं (header)। मैं सब बोलकर बताऊंगा।', en: 'Press ♿ in header. I\'ll describe everything.' },
+    },
+
+    // ── SPECIFIC COMPLAINTS ──
+    {
+        keywords: ['light nahi jal rahi', 'bulb kharab', 'andhera', 'roshni nahi', 'streetlight', 'लाइट नहीं', 'अंधेरा'],
+        answer: { hi: 'स्ट्रीटलाइट: "शिकायत" → "Broken Streetlight" → जगह → फोटो।', en: 'Streetlight: "complaint" → "Broken Streetlight" → location → photo.' },
+    },
+    {
+        keywords: ['pani nahi aa raha', 'tap band', 'pipe tuta', 'nal se pani nahi', 'leak', 'पानी नहीं', 'नल बंद', 'लीक'],
+        answer: { hi: 'पानी: "शिकायत" → "Water Supply" → समस्या बताएं → फोटो।', en: 'Water: "complaint" → "Water Supply" → describe → photo.' },
+    },
+    {
+        keywords: ['sadak tuti', 'gaddha', 'road kharab', 'pothole', 'सड़क टूटी', 'गड्ढा'],
+        answer: { hi: 'सड़क: "शिकायत" → "Road Damage" → जगह → फोटो।', en: 'Road: "complaint" → "Road Damage" → location → photo.' },
+    },
+    {
+        keywords: ['kachra', 'garbage', 'gandagi', 'safai nahi', 'कचरा', 'गंदगी', 'सफाई नहीं'],
+        answer: { hi: 'कचरा: "शिकायत" → "Garbage Collection" → कहाँ → फोटो।', en: 'Garbage: "complaint" → "Garbage Collection" → where → photo.' },
+    },
+    {
+        keywords: ['voltage kam', 'bijli aa jaa rahi', 'current problem', 'बिजली कम ज्यादा', 'वोल्टेज'],
+        answer: { hi: 'वोल्टेज: "शिकायत" → "Voltage Fluctuation" → कब से → कितनी बार।', en: 'Voltage: "complaint" → "Voltage Fluctuation" → since when → how often.' },
+    },
+
+    // ── GATEWAY ──
+    {
+        keywords: ['citizen kya', 'guest kya', 'fark kya', 'difference', 'सिटिज़न', 'गेस्ट', 'फ़र्क', 'अंतर'],
+        answer: { hi: 'Citizen = आधार लॉगिन (सारी सेवाएं)। Guest = बिना लॉगिन (बिल + शिकायत)।', en: 'Citizen = Aadhaar login (all). Guest = no login (bills + complaints).' },
+    },
+    {
+        keywords: ['guest chalo', 'bina login', 'seedha bill', 'guest mode', 'बिना लॉगिन', 'सीधा बिल'],
+        answer: { hi: 'Guest mode — बिना लॉगिन बिल भुगतान। कौन सा बिल?', en: 'Guest mode — bills without login. Which bill?' },
+        action: 'set_screen_guest',
+    },
+    {
+        keywords: ['citizen chalo', 'login karo', 'aadhaar lagao', 'angootha lagao', 'लॉगिन करो', 'अंगूठा लगाओ'],
+        answer: { hi: 'चलिए आधार से लॉगिन — अंगूठा सबसे आसान।', en: 'Let\'s login — thumb is easiest.' },
+        action: 'set_screen_citizen_auth',
+    },
+
+    // ── MISC ──
+    {
+        keywords: ['time', 'timing', 'kab tak khula', 'working hours', 'समय', 'khula hai'],
+        answer: { hi: 'कियोस्क 24/7 है — कभी भी आएं!', en: 'Kiosk is 24/7!' },
+    },
+    {
+        keywords: ['balance', 'baki', 'bakaya', 'बैलेंस', 'बकाया', 'बाकी'],
+        answer: { hi: 'बकाया: consumer number डालें → "Fetch Bill"।', en: 'Balance: consumer number → "Fetch Bill".' },
+    },
+    {
+        keywords: ['kitne paise', 'total kitna', 'amount btao', 'कितने पैसे', 'अमाउंट बताओ'],
+        answer: { hi: 'राशि: consumer number डालें — मैं बोलकर बता दूंगा।', en: 'Amount: enter consumer number — I\'ll read it.' },
+    },
+    {
+        keywords: ['upload fail', 'document fail', 'अपलोड नहीं'],
+        answer: { hi: 'फोटो 5MB से कम। दुबारा "📸 Photo" दबाएं।', en: 'Photo under 5MB. Try "📸 Photo" again.' },
+    },
+    {
+        keywords: ['account not found', 'khata nahi', 'अकाउंट नहीं'],
+        answer: { hi: 'Number/Aadhaar दोबारा चेक करें।', en: 'Recheck number/Aadhaar.' },
+    },
+    {
+        keywords: ['aage', 'next', 'आगे', 'proceed', 'continue', 'आगे बढ़ो'],
+        answer: { hi: '"Continue" या "Proceed" बटन दबाएं।', en: 'Press "Continue" or "Proceed".' },
+    },
+    {
+        keywords: ['peeche jao', 'wapas jao', 'वापस', 'पीछे', 'go back', 'laut'],
+        answer: { hi: 'ठीक है, पिछले पेज पर चलते हैं।', en: 'Going back.' },
+        action: 'go_back',
+    },
+    {
+        keywords: ['home jao', 'ghar chalo', 'main page', 'shuru se', 'होम', 'main menu'],
+        answer: { hi: 'होम पेज पर चलते हैं — सारी सेवाएं वहाँ हैं।', en: 'Going to home page — all services there.' },
+        action: 'navigate_home',
+    },
+];
+
 // ── HELPER FUNCTIONS ────────────────────────────────
 
 export function matchesKeywords(text, keywords) {
@@ -527,11 +706,19 @@ export function detectPaymentMethod(text) {
     return null;
 }
 
+/**
+ * Search BOTH COMMON_QA and EXPANDED_QA for a matching answer.
+ * Returns { text, action } or null.
+ */
 export function findCommonAnswer(text, lang) {
     const lower = text.toLowerCase();
-    for (const qa of COMMON_QA) {
+    const allQA = [...COMMON_QA, ...EXPANDED_QA];
+    for (const qa of allQA) {
         if (qa.keywords.some(k => lower.includes(k))) {
-            return qa.answer[lang] || qa.answer.en;
+            return {
+                text: qa.answer[lang] || qa.answer.en,
+                action: qa.action || null,
+            };
         }
     }
     return null;

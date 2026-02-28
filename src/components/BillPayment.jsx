@@ -16,6 +16,7 @@ import { t } from '../utils/i18n';
 import { lookupBill, generateTxnId } from '../utils/mockData';
 import { saveOfflineTransaction } from '../utils/offlineSync';
 import { generatePaymentReceipt, downloadReceipt } from '../utils/pdfGenerator';
+import { useVoice } from './VoiceContext';
 
 const SERVICE_META = {
     electricity: { icon: '⚡', label: 'Electricity Bill', color: '#FBBF24' },
@@ -49,6 +50,7 @@ export default function BillPayment({ lang, isOnline }) {
     const { serviceType } = useParams();
     const navigate = useNavigate();
     const meta = SERVICE_META[serviceType] || SERVICE_META.electricity;
+    const { setPageData, blindMode } = useVoice();
 
     const [step, setStep] = useState('input');
     const [consumerId, setConsumerId] = useState('');
@@ -56,6 +58,31 @@ export default function BillPayment({ lang, isOnline }) {
     const [payMethod, setPayMethod] = useState(null);
     const [txnId, setTxnId] = useState('');
     const [cashCount, setCashCount] = useState(0);
+
+    // Report page state to VoiceAgent for blind mode
+    useEffect(() => {
+        const data = {
+            page: 'bill_payment',
+            serviceType,
+            serviceName: meta.label,
+            currentStep: step,
+            consumerId: consumerId || null,
+        };
+        if (bill) {
+            data.billFound = true;
+            data.consumerName = bill.name;
+            data.amount = bill.amount;
+            data.units = `${bill.units} ${bill.unitLabel}`;
+            data.meterNo = bill.meterNo;
+            data.dueDate = bill.dueDate;
+        }
+        if (payMethod) data.paymentMethod = payMethod;
+        if (txnId) data.transactionId = txnId;
+        if (step === 'success') data.paymentComplete = true;
+        setPageData?.(data);
+
+        return () => setPageData?.(null);
+    }, [step, consumerId, bill, payMethod, txnId, serviceType, meta.label, setPageData]);
 
     const fetchBill = useCallback(() => {
         if (consumerId.trim().length < 1) return;

@@ -8,6 +8,7 @@
  */
 
 import { useNavigate } from 'react-router-dom';
+import { useEffect } from 'react';
 import { t } from '../utils/i18n';
 import { useVoice } from './VoiceContext';
 
@@ -22,8 +23,18 @@ const extraLabels = { propertyTax: 'Property Tax' };
 
 export default function HomeScreen({ lang, setLang, onBack }) {
     const navigate = useNavigate();
-    const { voiceMode, isActive } = useVoice();
+    const { voiceMode, isActive, setPageData, blindMode } = useVoice();
     const getLabel = (key, labelKey) => extraLabels[key] || t(lang, labelKey);
+
+    // Report available services for blind mode
+    useEffect(() => {
+        setPageData?.({
+            page: 'home_services',
+            availableServices: SERVICES.map(s => ({ key: s.key, label: getLabel(s.key, s.label), route: s.route })),
+            canFileComplaint: true,
+        });
+        return () => setPageData?.(null);
+    }, [setPageData]);
 
     return (
         <div className="min-h-[calc(100vh-160px)] flex flex-col items-center justify-center px-4 py-8 gap-6 fast-fade-in">

@@ -21,12 +21,34 @@ const LABELS = {
 const getLabels = (lang) => LABELS[lang] || LABELS.en;
 
 export default memo(function GatewayScreen({ lang, setLang, onSelectPath }) {
-    const { voiceMode, isActive } = useVoice();
+    const { voiceMode, isActive, blindMode, setBlindMode } = useVoice();
     const l = getLabels(lang);
 
     return (
         <div className="fixed inset-0 z-50 overflow-y-auto fast-fade-in"
             style={{ background: 'linear-gradient(160deg, #0F172A 0%, #1E293B 50%, #0F172A 100%)' }}>
+
+            {/* Blind Mode Toggle — top-right corner */}
+            <button
+                onClick={() => setBlindMode(!blindMode)}
+                aria-label={blindMode ? 'Disable accessibility mode' : 'Enable accessibility mode'}
+                className="fixed top-4 right-4 z-[60] flex items-center gap-2 px-4 py-3 rounded-2xl border-2 transition-all duration-300 active:scale-95"
+                style={{
+                    background: blindMode
+                        ? 'linear-gradient(135deg, rgba(16,185,129,0.3), rgba(5,150,105,0.2))'
+                        : 'linear-gradient(135deg, rgba(99,102,241,0.2), rgba(79,70,229,0.1))',
+                    borderColor: blindMode ? 'rgba(16,185,129,0.6)' : 'rgba(99,102,241,0.3)',
+                    boxShadow: blindMode ? '0 0 20px rgba(16,185,129,0.3)' : '0 0 10px rgba(99,102,241,0.15)',
+                }}
+            >
+                <span style={{ fontSize: '1.6rem' }}>♿</span>
+                <span className="text-sm font-bold" style={{ color: blindMode ? '#34D399' : '#A5B4FC' }}>
+                    {blindMode
+                        ? (lang === 'hi' ? 'चालू' : 'ON')
+                        : (lang === 'hi' ? 'दृष्टिबाधित' : 'Blind')}
+                </span>
+            </button>
+
             <div className="min-h-screen flex flex-col items-center justify-center px-4 py-6 max-w-lg mx-auto">
 
                 {/* Header */}

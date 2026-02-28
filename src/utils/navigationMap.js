@@ -61,6 +61,37 @@ export const NAVIGATION_MAP = {
             pa: ['ਐਡਮਿਨ', 'ਪ੍ਰਸ਼ਾਸਕ', 'ਡੈਸ਼ਬੋਰਡ'],
         },
     },
+    // Citizen-only services (require Aadhaar login)
+    name_change: {
+        route: '/citizen/name-change',
+        action: 'navigate',
+        requiresAuth: true,
+        labels: {
+            en: ['name change', 'change name', 'update name', 'naam badalna', 'naam badalwana'],
+            hi: ['नाम बदलना', 'नाम बदलवाना', 'नाम अपडेट'],
+            pa: ['ਨਾਮ ਬਦਲਣਾ', 'ਨਾਮ ਅਪਡੇਟ'],
+        },
+    },
+    new_connection: {
+        route: '/citizen/new-connection',
+        action: 'navigate',
+        requiresAuth: true,
+        labels: {
+            en: ['new connection', 'new meter', 'apply connection'],
+            hi: ['नया कनेक्शन', 'नया मीटर', 'कनेक्शन लगवाना'],
+            pa: ['ਨਵਾਂ ਕਨੈਕਸ਼ਨ', 'ਨਵਾਂ ਮੀਟਰ'],
+        },
+    },
+    meter_reading: {
+        route: '/citizen/meter-reading',
+        action: 'navigate',
+        requiresAuth: true,
+        labels: {
+            en: ['meter reading', 'submit reading', 'meter'],
+            hi: ['मीटर रीडिंग', 'रीडिंग दर्ज'],
+            pa: ['ਮੀਟਰ ਰੀਡਿੰਗ'],
+        },
+    },
 };
 
 /** App-flow actions (non-route state changes) */

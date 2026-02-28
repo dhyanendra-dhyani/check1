@@ -1,17 +1,20 @@
 /**
  * ═══════════════════════════════════════════════════════════
- * SUVIDHA Setu — Main App v4.0 (Voice-First)
+ * SUVIDHA Setu — Main App v5.0 (Voice-First + Blind Mode)
  *
  * The website IS the assistant. VoiceAgent wraps everything
  * as a context provider. Screens activate voice via useVoice().
+ * Blind mode: assistant reads ALL on-screen data step-by-step.
  * ═══════════════════════════════════════════════════════════
  */
 
 import { useState, useEffect, useCallback, useRef, lazy, Suspense } from 'react';
 import { BrowserRouter, Routes, Route, useNavigate, useLocation } from 'react-router-dom';
 import { t } from './utils/i18n';
+import { resetChatSession } from './utils/geminiService';
 
 /* ── Lazy-loaded screens ──────────────────────── */
+const ScreensaverScreen = lazy(() => import('./components/ScreensaverScreen'));
 const IdleScreen = lazy(() => import('./components/IdleScreen'));
 const GatewayScreen = lazy(() => import('./components/GatewayScreen'));
 const AuthScreen = lazy(() => import('./components/AuthScreen'));
@@ -32,11 +35,12 @@ function Loader() {
 }
 
 function AppContent() {
-  const [screen, setScreen] = useState('idle');
+  const [screen, setScreen] = useState('screensaver');
   const [lang, setLang] = useState('en');
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [citizen, setCitizen] = useState(null);
   const [voiceMode, setVoiceMode] = useState(false);
+  const [blindMode, setBlindMode] = useState(false);
   const [showDevPanel, setShowDevPanel] = useState(false);
   const [devLogs, setDevLogs] = useState([]);
   const [showSOS, setShowSOS] = useState(false);
@@ -52,8 +56,8 @@ function AppContent() {
   const resetIdle = useCallback(() => {
     if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
     idleTimerRef.current = setTimeout(() => {
-      if (screen !== 'idle' && location.pathname !== '/admin') {
-        setScreen('idle'); setCitizen(null); navigate('/'); addLog('Idle reset');
+      if (screen !== 'idle' && screen !== 'screensaver' && location.pathname !== '/admin') {
+        setScreen('screensaver'); setCitizen(null); navigate('/'); resetChatSession(); addLog('Idle reset → screensaver');
       }
     }, 120000);
   }, [screen, location.pathname, navigate, addLog]);
@@ -85,7 +89,7 @@ function AppContent() {
 
   const goHome = useCallback(() => {
     if (screen === 'citizen-dashboard' || screen === 'guest') navigate('/');
-    else { setScreen('idle'); setCitizen(null); navigate('/'); }
+    else { setScreen('screensaver'); setCitizen(null); navigate('/'); resetChatSession(); }
   }, [screen, navigate]);
 
   const showPersistent = screen === 'guest' || screen === 'citizen-dashboard';
@@ -98,6 +102,8 @@ function AppContent() {
         screen={screen}
         setScreen={setScreen}
         voiceMode={voiceMode}
+        blindMode={blindMode}
+        setBlindMode={setBlindMode}
         navigate={navigate}
         setCitizen={setCitizen}
         addLog={addLog}
@@ -105,7 +111,7 @@ function AppContent() {
         <div className="min-h-screen flex flex-col" style={{ background: '#0F172A' }}>
 
           {/* ── Prototype Marquee Ticker ────────────── */}
-          {screen !== 'idle' && (
+          {screen !== 'idle' && screen !== 'screensaver' && (
             <div className="proto-ticker">
               <div className="proto-ticker-inner">
                 <span>🔧 PROTOTYPE DEMONSTRATION — This is a UI prototype. All data is simulated. Enter any number as Consumer ID.&nbsp;&nbsp;&nbsp;•&nbsp;&nbsp;&nbsp;</span>
@@ -115,13 +121,17 @@ function AppContent() {
           )}
 
           <Suspense fallback={<Loader />}>
+            {screen === 'screensaver' && (
+              <ScreensaverScreen onWake={() => { setScreen('idle'); addLog('Screensaver → Idle'); }} />
+            )}
             {screen === 'idle' && (
-              <IdleScreen lang={lang} setLang={setLang} onStart={(isVoice) => {
+              <IdleScreen lang={lang} setLang={setLang} blindMode={blindMode} setBlindMode={setBlindMode} onStart={(isVoice, isBlind) => {
                 setVoiceMode(!!isVoice);
-                if (isVoice) {
-                  // Voice mode: skip gateway, VoiceAgent asks Aadhaar question
+                if (isBlind) setBlindMode(true);
+                if (isVoice || isBlind) {
+                  // Voice/blind mode: skip gateway, VoiceAgent asks Aadhaar question
                   setScreen('gateway');
-                  addLog('Voice mode — VoiceAgent guides');
+                  addLog(isBlind ? 'Blind mode — VoiceAgent guides' : 'Voice mode — VoiceAgent guides');
                 } else {
                   setScreen('gateway');
                   addLog('Touch mode');
@@ -181,6 +191,19 @@ function AppContent() {
                         }`}>
                         {screen === 'citizen-dashboard' ? '🏛️ Citizen' : '⚡ Guest'}
                       </span>
+                      {blindMode && (
+                        <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-amber-500/15 text-amber-400 border border-amber-500/20">
+                          ♿ Accessible
+                        </span>
+                      )}
+                      <button
+                        onClick={() => { setBlindMode(b => !b); if (!voiceMode) { setVoiceMode(true); } }}
+                        className={`w-8 h-8 rounded-lg flex items-center justify-center cursor-pointer border text-sm transition-all ${blindMode
+                          ? 'bg-amber-500/20 border-amber-500/40 text-amber-400'
+                          : 'bg-white/5 border-white/10 text-white/40 hover:text-white/70'
+                          }`}
+                        title={blindMode ? 'Disable accessibility mode' : 'Enable accessibility mode (for visually impaired)'}
+                      >♿</button>
                       <select value={lang} onChange={e => setLang(e.target.value)}
                         className="px-2 py-1 bg-white/5 border border-white/10 rounded-lg text-white text-sm cursor-pointer focus:outline-none">
                         <option value="en" className="bg-gray-900">EN</option>
@@ -259,7 +282,7 @@ function AppContent() {
               </div>
               <div className="p-2 font-mono text-xs">
                 <p>Screen: <span className="text-indigo-400">{screen}</span> | Lang: <span className="text-green-400">{lang}</span></p>
-                <p>Online: <span className={isOnline ? 'text-green-400' : 'text-red-400'}>{String(isOnline)}</span></p>
+                <p>Online: <span className={isOnline ? 'text-green-400' : 'text-red-400'}>{String(isOnline)}</span> | Blind: <span className={blindMode ? 'text-amber-400' : 'text-white/30'}>{String(blindMode)}</span></p>
               </div>
               <div className="p-2 max-h-40 overflow-y-auto">
                 {devLogs.map((l, i) => (

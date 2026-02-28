@@ -1,9 +1,9 @@
 /**
- * VoiceContext v7 — Global voice mode state
+ * VoiceContext v8 — Global voice mode state + Blind Mode + Page Data
  *
  * voiceMode: boolean — set ONCE at IdleScreen
- *   true  = entire session is voice-controlled
- *   false = touch-only, no voice elements shown
+ * blindMode: boolean — accessibility mode for visually impaired
+ * pageData: object — current page state reported by active component
  */
 
 import { createContext, useContext } from 'react';
@@ -14,6 +14,10 @@ const VoiceContext = createContext({
     status: 'idle',
     lastTranscript: '',
     lastReply: '',
+    blindMode: false,
+    setBlindMode: () => { },
+    pageData: null,
+    setPageData: () => { },
     activate: () => { },
     deactivate: () => { },
 });
