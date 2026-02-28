@@ -23,6 +23,7 @@ const HomeScreen = lazy(() => import('./components/HomeScreen'));
 const BillPayment = lazy(() => import('./components/BillPayment'));
 const ComplaintForm = lazy(() => import('./components/ComplaintForm'));
 const AdminDashboard = lazy(() => import('./components/AdminDashboard'));
+const NewConnectionForm = lazy(() => import('./components/NewConnectionForm'));
 const OfflineIndicator = lazy(() => import('./components/OfflineIndicator'));
 import VoiceAgent from './components/VoiceAgent'; // Direct import — must be ready immediately
 
@@ -226,6 +227,7 @@ function AppContent() {
                     } />
                     <Route path="/bill/:serviceType" element={<BillPayment lang={lang} isOnline={isOnline} />} />
                     <Route path="/complaint" element={<ComplaintForm lang={lang} isOnline={isOnline} />} />
+                    <Route path="/new-connection" element={<NewConnectionForm lang={lang} />} />
                     <Route path="/admin" element={<AdminDashboard lang={lang} />} />
                   </Routes>
                 </main>

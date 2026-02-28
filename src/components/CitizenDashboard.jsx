@@ -21,7 +21,7 @@ const myComplaints = [
 ];
 
 const availableServices = [
-    { label: 'Apply New Connection', icon: '🆕', route: '/bill/electricity' },
+    { label: 'Apply New Connection', icon: '🆕', route: '/new-connection' },
     { label: 'Name Change', icon: '✏️', route: '/complaint' },
     { label: 'Print Certificate', icon: '📜', route: '/complaint' },
     { label: 'Report Issue', icon: '📝', route: '/complaint' },
