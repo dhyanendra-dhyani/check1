@@ -22,6 +22,7 @@ const CitizenDashboard = lazy(() => import('./components/CitizenDashboard'));
 const HomeScreen = lazy(() => import('./components/HomeScreen'));
 const BillPayment = lazy(() => import('./components/BillPayment'));
 const ComplaintForm = lazy(() => import('./components/ComplaintForm'));
+const NaamChangeForm = lazy(() => import('./components/NaamChangeForm'));
 const AdminDashboard = lazy(() => import('./components/AdminDashboard'));
 const NewConnectionForm = lazy(() => import('./components/NewConnectionForm'));
 const OfflineIndicator = lazy(() => import('./components/OfflineIndicator'));
@@ -45,6 +46,7 @@ function AppContent() {
   const [showDevPanel, setShowDevPanel] = useState(false);
   const [devLogs, setDevLogs] = useState([]);
   const [showSOS, setShowSOS] = useState(false);
+  const [pendingIntent, setPendingIntent] = useState(null); // Track what user wants (naam_change, new_connection, etc.)
   const idleTimerRef = useRef(null);
   const navigate = useNavigate();
   const location = useLocation();
@@ -108,6 +110,8 @@ function AppContent() {
         navigate={navigate}
         setCitizen={setCitizen}
         addLog={addLog}
+        setPendingIntent={setPendingIntent}
+        citizen={citizen}
       >
         <div className="min-h-screen flex flex-col" style={{ background: '#0F172A' }}>
 
@@ -222,11 +226,12 @@ function AppContent() {
                   <Routes location={location}>
                     <Route path="/" element={
                       screen === 'citizen-dashboard'
-                        ? <CitizenDashboard lang={lang} citizen={citizen} onLogout={() => { setCitizen(null); setScreen('gateway'); }} isOnline={isOnline} />
+                        ? <CitizenDashboard lang={lang} citizen={citizen} onLogout={() => { setCitizen(null); setScreen('gateway'); setPendingIntent(null); }} isOnline={isOnline} pendingIntent={pendingIntent} clearPendingIntent={() => setPendingIntent(null)} />
                         : <HomeScreen lang={lang} setLang={setLang} onBack={() => setScreen('gateway')} />
                     } />
                     <Route path="/bill/:serviceType" element={<BillPayment lang={lang} isOnline={isOnline} />} />
                     <Route path="/complaint" element={<ComplaintForm lang={lang} isOnline={isOnline} />} />
+                    <Route path="/name-change" element={<NaamChangeForm lang={lang} isOnline={isOnline} />} />
                     <Route path="/new-connection" element={<NewConnectionForm lang={lang} />} />
                     <Route path="/admin" element={<AdminDashboard lang={lang} />} />
                   </Routes>

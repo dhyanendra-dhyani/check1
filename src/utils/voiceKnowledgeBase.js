@@ -188,20 +188,36 @@ export const RESPONSES = {
             en: 'Home page is open. Four services — electricity, water, gas, and property tax. Tell me which bill or say "complaint".',
         },
         '/bill/electricity': {
-            hi: 'बिजली बिल का पेज खुल गया। अब consumer number डालें — नीचे नंबर पैड है। Consumer number आपके पुराने बिजली बिल पर ऊपर बाईं तरफ लिखा होता है, जैसे PSEB-123456। QR कोड भी स्कैन कर सकते हैं — नीचे QR बटन है।',
+            hi: 'बिजली बिल का पेज खुल गया। अब अपनी खाता संख्या डालें — यह आपके पुराने बिजली बिल पर ऊपर बाईं तरफ लिखी होती है, जैसे PSEB-123456। नीचे नंबर पैड से डालें या QR कोड स्कैन करें।',
             en: 'Electricity bill page is open. Enter your consumer number using the keypad below. It\'s on your previous bill, like PSEB-123456. You can also scan QR.',
         },
         '/bill/water': {
-            hi: 'पानी बिल का पेज खुल गया। Consumer number डालें — जैसे PHED-789012। यह आपके पिछले बिल पर लिखा होता है। नीचे नंबर पैड से डालें या QR स्कैन करें।',
+            hi: 'पानी बिल का पेज खुल गया। अपनी खाता संख्या डालें — जैसे PHED-789012। यह आपके पिछले बिल पर लिखी होती है। नीचे नंबर पैड से डालें या QR स्कैन करें।',
             en: 'Water bill page is open. Enter your consumer number like PHED-789012. Use the keypad or scan QR.',
         },
         '/bill/gas': {
-            hi: 'गैस बिल का पेज खुल गया। LPG ID या consumer number डालें — जैसे GPL-345678। यह आपकी गैस बुक पर या सिलेंडर पर लिखा होता है।',
+            hi: 'गैस बिल का पेज खुल गया। LPG ID या खाता संख्या डालें — जैसे GPL-345678। यह आपकी गैस बुक या सिलेंडर रसीद पर लिखी होती है।',
             en: 'Gas bill page is open. Enter your LPG ID like GPL-345678. It\'s on your gas book or cylinder.',
+        },
+        '/bill/property-tax': {
+            hi: 'Property Tax का पेज खुल गया। अपनी Property ID या खाता संख्या डालें — यह आपकी पिछली टैक्स रसीद पर या नगरपालिका ऑफिस से मिलेगी। नीचे नंबर पैड से डालें।',
+            en: 'Property Tax page is open. Enter your Property ID from your previous tax receipt or municipal office. Use the keypad below.',
         },
         '/complaint': {
             hi: 'शिकायत का पेज खुल गया। नीचे छह श्रेणियां हैं — टूटी स्ट्रीटलाइट, पानी सप्लाई, कचरा, बिजली वोल्टेज, सड़क गड्ढा, या अन्य। बोलें क्या समस्या है, मैं खुद श्रेणी चुन लूँगा। फोटो भी लगा सकते हैं।',
             en: 'Complaint page is open. Six categories — broken streetlight, water supply, garbage, voltage, road damage, or other. Tell me your issue and I\'ll pick the category. You can also attach a photo.',
+        },
+        '/name-change': {
+            hi: 'नाम बदलाव का फॉर्म खुल गया है। यहाँ आप कनेक्शन का प्रकार चुनें — बिजली, पानी, या गैस। फिर पुराना नाम और नया नाम डालें। ज़रूरी दस्तावेज़ अपलोड करें — अफिडेविट, नो ऑब्जेक्शन सर्टिफिकेट। सब भरा हो जाए तो सबमिट दबाएं।',
+            en: 'Name change form is open. Select connection type — electricity, water, or gas. Enter old name and new name. Upload required documents like affidavit and no-objection certificate. Then submit.',
+        },
+        '/new-connection': {
+            hi: 'नया कनेक्शन का फॉर्म खुल गया है। पहले कनेक्शन का प्रकार चुनें — बिजली, पानी, या गैस। फिर DigiLocker से दस्तावेज़ लिए जाएंगे। फॉर्म भरें — नाम, पता, फोन नंबर। दस्तावेज़ वेरिफाई करें और सबमिट दबाएं। 7-15 दिन में कनेक्शन हो जाएगा।',
+            en: 'New connection form is open. Select connection type — electricity, water, or gas. Documents will be fetched from DigiLocker. Fill the form with name, address, and phone. Verify documents and submit. Connection in 7-15 days.',
+        },
+        '/admin': {
+            hi: 'एडमिन डैशबोर्ड खुल गया है। यहाँ सभी लेनदेन, शिकायतें, और किओस्क स्थिति दिखती है। सामान्य उपयोगकर्ताओं को इसकी ज़रूरत नहीं होती।',
+            en: 'Admin dashboard is open. Shows all transactions, complaints, and kiosk status. Regular users don\'t need this.',
         },
     },
 
@@ -223,7 +239,7 @@ export const RESPONSES = {
     // ── Complaint step guidance ─────────────────────
 
     complaint_category: {
-        hi: 'श्रेणी चुन लीजिए। छह विकल्प हैं: 1. टूटी स्ट्रीटलाइट 💡, 2. पानी सप्लाई 🚰, 3. कचरा 🗑️, 4. बिजली वोल्टेज ⚡, 5. सड़क गड्ढा 🛣️, 6. अन्य 📋। बोलें या बटन दबाएं।',
+        hi: 'श्रेणी चुन लीजिए। छह विकल्प हैं: 1. टूटी स्ट्रीटलाइट, 2. पानी सप्लाई, 3. कचरा, 4. बिजली वोल्टेज, 5. सड़क गड्ढा, 6. अन्य। बोलें या बटन दबाएं।',
         en: 'Choose a category: 1. Broken Streetlight, 2. Water Supply, 3. Garbage, 4. Voltage, 5. Road Damage, 6. Other.',
     },
     complaint_details: {
@@ -231,23 +247,23 @@ export const RESPONSES = {
         en: 'Describe the issue — type or speak. Add a photo if you want. Location is auto-detected. Then say "submit" or press the button.',
     },
     complaint_done: {
-        hi: 'शिकायत दर्ज हो गई! 🎉 टिकट नंबर स्क्रीन पर है — इसे लिख लीजिए। PDF भी डाउनलोड कर सकते हैं। 48 घंटे में कार्रवाई होगी।',
-        en: 'Complaint filed! 🎉 Your ticket number is on screen — note it down. You can also download the PDF. Action within 48 hours.',
+        hi: 'शिकायत दर्ज हो गई! टिकट नंबर स्क्रीन पर है — इसे लिख लीजिए। PDF भी डाउनलोड कर सकते हैं। 48 घंटे में कार्रवाई होगी।',
+        en: 'Complaint filed! Your ticket number is on screen — note it down. You can also download the PDF. Action within 48 hours.',
     },
 
     // ── Auth guidance ───────────────────────────────
 
     auth_thumb: {
-        hi: 'अंगूठा लगाइए — बायोमेट्रिक स्कैनर पर उंगली रखें। 2-3 सेकंड लगेंगे।',
-        en: 'Place your thumb on the biometric scanner. It\'ll take 2-3 seconds.',
+        hi: 'Thumb lagao → Scanner pe rakho',
+        en: 'Thumb → Scanner',
     },
     auth_iris: {
-        hi: 'आँख स्कैन — कैमरे की तरफ देखें, आँख खुली रखें। 2-3 सेकंड में हो जाएगा।',
-        en: 'Look at the camera with your eye open. It\'ll take 2-3 seconds.',
+        hi: 'Camera ke samne dekho',
+        en: 'Look at camera',
     },
     auth_otp: {
-        hi: 'OTP वाला तरीका — अपना आधार से जुड़ा मोबाइल नंबर डालें, OTP आएगा। फिर OTP डालें और लॉगिन हो जाएगा।',
-        en: 'OTP method — enter your Aadhaar-linked mobile number. You\'ll receive an OTP. Enter it to login.',
+        hi: 'Mobile number → OTP aayega → Enter karo',
+        en: 'Mobile → OTP → Enter',
     },
 
     // ── Dashboard guidance ──────────────────────────
@@ -266,8 +282,8 @@ export const COMMON_QA = [
     {
         keywords: ['consumer number', 'consumer', 'number kahan', 'kaha se', 'kaise milega', 'id kahan', 'कंज्यूमर', 'नंबर कहाँ', 'कहाँ से', 'आईडी', 'id number'],
         answer: {
-            hi: 'Consumer number आपके पुराने बिल पर ऊपर बाईं तरफ लिखा होता है। बिजली बिल पर PSEB- से शुरू होता है, पानी पर PHED-, गैस पर GPL-। अगर बिल नहीं है तो QR स्कैन बटन दबाएं या नजदीकी ऑफिस से पूछें। डेमो के लिए PSEB-123456 डालें।',
-            en: 'Consumer number is on top-left of your previous bill. Electricity starts with PSEB-, water with PHED-, gas with GPL-. If no bill, use QR scan or ask at the office. For demo, try PSEB-123456.',
+            hi: 'PSEB-XXXXXX, PHED-XXXXXX, या GPL-XXXXXX',
+            en: 'PSEB-XXXXXX, PHED-XXXXXX, or GPL-XXXXXX',
         },
     },
     // ── QR scan ──
@@ -282,64 +298,64 @@ export const COMMON_QA = [
     {
         keywords: ['kitna paisa', 'kitna', 'amount', 'bill kitna', 'कितना', 'कितने पैसे', 'rashi', 'राशि', 'total', 'due'],
         answer: {
-            hi: 'बिल की राशि जानने के लिए पहले consumer number डालें और "Fetch Bill" दबाएं। फिर बिल की पूरी जानकारी दिखेगी — राशि, यूनिट्स, ड्यू डेट, पिछला भुगतान सब।',
-            en: 'Enter your consumer number first and press "Fetch Bill". Then you\'ll see the full details — amount, units, due date, last payment.',
+            hi: 'Number डालें → Fetch Bill',
+            en: 'Enter number → Fetch Bill',
         },
     },
     // ── Payment methods ──
     {
         keywords: ['upi', 'card', 'cash', 'payment', 'bhugtan', 'kaise pay', 'pay kaise', 'भुगतान', 'कैसे', 'gpay', 'phonepe', 'paytm'],
         answer: {
-            hi: 'तीन तरीके हैं — 1. UPI: GPay, PhonePe, Paytm से। 2. Card: Debit या Credit कार्ड से। 3. Cash: मशीन में नोट डालें। सब में 2-3 सेकंड लगते हैं।',
-            en: 'Three payment methods — 1. UPI (GPay, PhonePe, Paytm), 2. Card (Debit/Credit), 3. Cash (insert notes). All take 2-3 seconds.',
+            hi: 'UPI / Card / Cash',
+            en: 'UPI / Card / Cash',
         },
     },
     // ── Receipt / PDF ──
     {
         keywords: ['receipt', 'raseed', 'download', 'print', 'pdf', 'रसीद', 'प्रिंट', 'डाउनलोड'],
         answer: {
-            hi: 'भुगतान सफल होने के बाद "Download Receipt" बटन दिखेगा — दबाएं तो PDF डाउनलोड हो जाएगी। प्रिंट भी कर सकते हैं। रसीद में Transaction ID, राशि, तारीख सब लिखा होता है।',
-            en: 'After payment, press "Download Receipt" for a PDF. You can also print it. The receipt has Transaction ID, amount, and date.',
+            hi: 'Download Receipt बटन दबाएं',
+            en: 'Press Download Receipt button',
         },
     },
     // ── Due date ──
     {
         keywords: ['due date', 'last date', 'kab tak', 'deadline', 'akhri', 'अंतिम', 'आखिरी', 'ड्यू', 'तारीख'],
         answer: {
-            hi: 'ड्यू डेट आपके बिल पर लिखी होती है। Consumer number डालने पर ड्यू डेट भी दिखेगी। आम तौर पर बिल आने के 15-30 दिन बाद होती है। देर से भरने पर जुर्माना लग सकता है।',
-            en: 'Due date is shown after entering consumer number. Usually 15-30 days after bill generation. Late payment may have penalties.',
+            hi: 'बिल पर लिखी। Fetch Bill से दिखेगी।',
+            en: 'On bill. Shown after Fetch Bill.',
         },
     },
     // ── Units / consumption ──
     {
         keywords: ['unit', 'units', 'consumption', 'kitna use', 'meter', 'reading', 'यूनिट', 'मीटर', 'रीडिंग', 'खपत'],
         answer: {
-            hi: 'यूनिट्स यानी आपने कितनी बिजली/पानी/गैस इस्तेमाल की। मीटर रीडिंग से पता चलता है। बिजली kWh में, पानी KL में, गैस सिलेंडर में नापी जाती है। बिल में सब दिखेगा।',
-            en: 'Units show your consumption. Electricity in kWh, water in KL, gas in cylinders. All shown on the bill details.',
+            hi: 'Bijli: kWh, Pani: KL, Gas: Cylinder',
+            en: 'Electricity: kWh, Water: KL, Gas: Cylinders',
         },
     },
     // ── Help / what can I do ──
     {
         keywords: ['help', 'madad', 'sahayata', 'kya kar', 'kya kya', 'feature', 'service', 'sewa', 'मदद', 'सहायता', 'क्या कर', 'सेवा'],
         answer: {
-            hi: 'यहाँ आप ये सब कर सकते हैं: 1. बिजली बिल भरें ⚡ 2. पानी बिल भरें 💧 3. गैस बिल भरें 🔥 4. Property Tax भरें 🏠 5. शिकायत दर्ज करें 📝 6. रसीद डाउनलोड करें 7. QR से बिल स्कैन करें। बोलें कौन सा काम करना है!',
-            en: 'You can: 1. Pay electricity bill ⚡ 2. Pay water bill 💧  3. Pay gas bill 🔥 4. Pay property tax 🏠 5. File complaint 📝 6. Download receipts 7. Scan QR bills.',
+            hi: 'Bill (Bijli/Pani/Gas), Tax, Complaint, Receipt',
+            en: 'Bills, Tax, Complaints, Receipts',
         },
     },
     // ── Complaint filing ──
     {
         keywords: ['shikayat kaise', 'complaint kaise', 'शिकायत कैसे', 'file complaint', 'report kaise'],
         answer: {
-            hi: 'शिकायत दर्ज करने के लिए: 1. बोलें "शिकायत" या बटन दबाएं 2. श्रेणी चुनें (बत्ती, पानी, कचरा, सड़क) 3. समस्या लिखें या बोलें 4. फोटो लगा सकते हैं 5. "दर्ज करें" दबाएं। टिकट नंबर मिलेगा 48 घंटे में कार्रवाई।',
-            en: 'To file a complaint: 1. Say "complaint" 2. Choose category 3. Describe the issue 4. Add photo (optional) 5. Submit. You\'ll get a ticket number, action within 48 hours.',
+            hi: 'Category chuno → Details likho → Photo upload (optional) → Submit',
+            en: 'Choose category → describe → photo → submit',
         },
     },
     // ── Complaint categories ──
     {
         keywords: ['category', 'shreni', 'श्रेणी', 'kaun kaun', 'type', 'prakar', 'प्रकार', 'categories'],
         answer: {
-            hi: 'शिकायत की छह श्रेणियां: 1. टूटी स्ट्रीटलाइट 💡 — बत्ती नहीं जल रही 2. पानी सप्लाई 🚰 — पानी नहीं आ रहा, पाइप लीक 3. कचरा 🗑️ — कचरा नहीं उठा 4. बिजली वोल्टेज ⚡ — करंट कम-ज्यादा 5. सड़क गड्ढा 🛣️ — सड़क टूटी 6. अन्य 📋',
-            en: 'Six complaint categories: 1. Broken Streetlight 💡 2. Water Supply 🚰 3. Garbage 🗑️ 4. Voltage ⚡ 5. Road Damage 🛣️ 6. Other 📋',
+            hi: 'शिकायत की छह श्रेणियां: 1. टूटी स्ट्रीटलाइट — बत्ती नहीं जल रही 2. पानी सप्लाई — पानी नहीं आ रहा, पाइप लीक 3. कचरा — कचरा नहीं उठा 4. बिजली वोल्टेज — करंट कम-ज्यादा 5. सड़क गड्ढा — सड़क टूटी 6. अन्य',
+            en: 'Six complaint categories: 1. Broken Streetlight 2. Water Supply 3. Garbage 4. Voltage 5. Road Damage 6. Other',
         },
     },
     // ── Complaint status ──
@@ -450,32 +466,33 @@ export const COMMON_QA = [
     {
         keywords: ['numpad', 'number pad', 'keyboard', 'type', 'kaise likhe', 'number daale', 'नंबर कैसे', 'कैसे डालें'],
         answer: {
-            hi: 'Consumer number डालने के लिए नीचे नंबर पैड है — 0-9 के बटन हैं। ⌫ से एक अक्षर मिटता है, C से सब मिट जाता है। Letter डालने के लिए ऊपर text field में सीधे टाइप करें।',
-            en: 'Use the number pad below — buttons 0-9 to enter digits. ⌫ deletes one character, C clears all. Type letters directly in the text field above.',
+            hi: '0-9 buttons, ⌫ mita, C clear',
+            en: '0-9 buttons, ⌫ delete, C clear',
         },
     },
     // ── New connection ──
     {
         keywords: ['new connection', 'naya', 'apply', 'naya connection', 'नया कनेक्शन', 'अप्लाई'],
         answer: {
-            hi: 'नया कनेक्शन लगाने के लिए Citizen Login करें। डैशबोर्ड में "🆕 Apply New Connection" का विकल्प है। वहाँ से आवेदन कर सकते हैं।',
-            en: 'For a new connection, login as Citizen. You\'ll find "🆕 Apply New Connection" on your dashboard.',
+            hi: 'Login → Dashboard → Apply New',
+            en: 'Login → Dashboard → Apply',
         },
     },
     // ── Name change ──
     {
-        keywords: ['name change', 'naam badlo', 'naam', 'transfer', 'नाम बदलो', 'नाम'],
+        keywords: ['name change', 'naam badlo', 'naam', 'mujhe naam badalna', 'naam badalna hai', 'transfer', 'नाम बदलो', 'नाम', 'नाम बदलना', 'मुझे नाम बदलना', 'naam badal do'],
         answer: {
-            hi: 'नाम बदलवाने के लिए Citizen Login करें। डैशबोर्ड में "✏️ Name Change" विकल्प है।',
-            en: 'For name change, login as Citizen. You\'ll find "✏️ Name Change" on your dashboard.',
+            hi: 'ठीक है, पहले आधार से लॉगिन करना होगा। फिर नाम बदला सकते हैं। आइए, लॉगिन कर लेते हैं।',
+            en: 'Okay, I\'ll take you to login first. Then you can change your name. Let\'s login.',
         },
+        action: 'navigate_naam_change',
     },
     // ── Certificate ──
     {
         keywords: ['certificate', 'pramanpatra', 'print certificate', 'प्रमाणपत्र', 'सर्टिफिकेट'],
         answer: {
-            hi: 'प्रमाणपत्र प्रिंट करने के लिए Citizen Login करें। डैशबोर्ड में "📜 Print Certificate" विकल्प है।',
-            en: 'To print certificates, login as Citizen. You\'ll find "📜 Print Certificate" on your dashboard.',
+            hi: 'Login → Dashboard → Print',
+            en: 'Login → Dashboard → Print',
         },
     },
     // ── Existing bill details ──
@@ -576,21 +593,30 @@ export const EXPANDED_QA = [
     // ── HINGLISH BILL PHRASES WITH ACTIONS ──
     {
         keywords: ['bill bharna', 'bill bharna hai', 'बिल भरना', 'bill pay karna', 'bill dena', 'बिल देना'],
-        answer: { hi: 'ज़रूर! कौन सा? बिजली ⚡, पानी 💧, या गैस 🔥?', en: 'Sure! Electricity ⚡, Water 💧, or Gas 🔥?' },
+        answer: { hi: 'ज़रूर! कौन सा? बिजली, पानी, या गैस?', en: 'Sure! Electricity, Water, or Gas?' },
     },
     {
-        keywords: ['bijli ka bill', 'bijli bill bharo', 'light bill', 'बिजली का बिल', 'बिजली बिल भरो', 'लाइट बिल', 'electricity bill pay'],
-        answer: { hi: 'बिजली बिल — Consumer number तैयार रखें (PSEB-XXXXXX)।', en: 'Electricity bill — keep consumer number ready (PSEB-XXXXXX).' },
+        keywords: ['bijli ka bill', 'bijli bill bharo', 'light bill', 'बिजली का बिल', 'बिजली बिल भरो', 'लाइट बिल', 'electricity bill pay', 'bijli ka bil bharna', 'bijli ka bill bharna'],
+        answer: {
+            hi: 'ठीक है, बिजली बिल भरने का पेज खोल रहा हूँ। इसमें खाता संख्या डालें जो आपको यहाँ से मिली होगी आपके पास होगी — आपके पुराने बिजली बिल पर ऊपर बाईं तरफ लिखी होती है, जैसे PSEB-123456। नीचे नंबर पैड से डालें या QR कोड स्कैन करें।',
+            en: 'Opening electricity bill page. Enter your account number like PSEB-123456 from your previous bill. Use keypad or scan QR.',
+        },
         action: 'navigate_bill_electricity',
     },
     {
-        keywords: ['pani ka bill', 'pani bill bharo', 'water bill pay', 'पानी का बिल', 'पानी बिल भरो'],
-        answer: { hi: 'पानी बिल — Consumer number तैयार रखें (PHED-XXXXXX)।', en: 'Water bill — keep consumer number ready (PHED-XXXXXX).' },
+        keywords: ['pani ka bill', 'pani bill bharo', 'water bill pay', 'पानी का बिल', 'पानी बिल भरो', 'pani ka bil bharna', 'pani ka bill bharna'],
+        answer: {
+            hi: 'ठीक है, पानी बिल भरने का पेज खोल रहा हूँ। इसमें खाता संख्या डालें जो आपके पानी के बिल पर ऊपर लिखी होती है — जैसे PHED-789012। नंबर पैड से डालें या QR स्कैन करें।',
+            en: 'Opening water bill page. Enter your account number like PHED-789012 from your water bill. Use keypad or scan QR.',
+        },
         action: 'navigate_bill_water',
     },
     {
-        keywords: ['gas ka bill', 'gas bill bharo', 'गैस का बिल', 'गैस बिल भरो', 'rasoi gas', 'gas bill pay'],
-        answer: { hi: 'गैस बिल — LPG ID तैयार रखें (GPL-XXXXXX)।', en: 'Gas bill — keep LPG ID ready (GPL-XXXXXX).' },
+        keywords: ['gas ka bill', 'gas bill bharo', 'गैस का बिल', 'गैस बिल भरो', 'rasoi gas', 'gas bill pay', 'gas ka bil bharna', 'gas ka bill bharna'],
+        answer: {
+            hi: 'ठीक है, गैस बिल भरने का पेज खोल रहा हूँ। इसमें LPG ID या खाता संख्या डालें — जैसे GPL-345678। यह आपकी गैस बुक या सिलेंडर रसीद पर लिखी होती है। नंबर पैड से डालें।',
+            en: 'Opening gas bill page. Enter your LPG ID like GPL-345678 from your gas book or cylinder receipt. Use keypad.',
+        },
         action: 'navigate_bill_gas',
     },
 
@@ -906,7 +932,7 @@ export const MEGA_QA = [
     },
     {
         keywords: ['aur bill', 'ek aur', 'another bill', 'और बिल', 'एक और', 'next bill', 'dusra bill'],
-        answer: { hi: 'ज़रूर! कौन सा — बिजली ⚡, पानी 💧, या गैस 🔥?', en: 'Sure! Which — electricity ⚡, water 💧, or gas 🔥?' }
+        answer: { hi: 'ज़रूर! कौन सा — बिजली, पानी, या गैस?', en: 'Sure! Which — electricity, water, or gas?' }
     },
 
     // ── NEW CONNECTION DETAILS ──
@@ -992,20 +1018,134 @@ export function detectPaymentMethod(text) {
 }
 
 /**
- * Search BOTH COMMON_QA and EXPANDED_QA for a matching answer.
- * Returns { text, action } or null.
+ * LAYER 2: Knowledge Base search with fuse.js fuzzy matching
+ * Optimized for SHORT spoken inputs (1-3 words)
+ *
+ * Algorithm:
+ * 1. Clean input (deduplicate, trim)
+ * 2. Try exact keyword match (fast path)
+ * 3. Use fuse.js with SHORT-INPUT optimized config
+ * 4. Return best match if score acceptable
  */
-export function findCommonAnswer(text, lang) {
-    const lower = text.toLowerCase();
+
+import Fuse from 'fuse.js';
+
+// Cache for fuse indices
+let fuse_cache_short = null;  // Optimized for 1-3 word inputs
+let fuse_cache_long = null;   // Optimized for full sentences
+
+function getShortFuseIndex() {
+    if (fuse_cache_short) return fuse_cache_short;
+
     const allQA = [...COMMON_QA, ...EXPANDED_QA, ...MEGA_QA];
+    const documents = allQA.map((qa, idx) => ({
+        idx,
+        combined: qa.keywords.join(' '),
+    }));
+
+    // Config optimized for SHORT inputs (1-3 words like "bijli" or "water bill")
+    fuse_cache_short = new Fuse(documents, {
+        keys: ['combined'],
+        threshold: 0.6,  // More lenient for short words
+        minMatchCharLength: 1,  // Allow single-char matches
+        distance: 100,  // Tolerance for character distance
+        ignoreLocation: false,  // Match anywhere in string
+        includeScore: true,
+    });
+
+    return fuse_cache_short;
+}
+
+function getLongFuseIndex() {
+    if (fuse_cache_long) return fuse_cache_long;
+
+    const allQA = [...COMMON_QA, ...EXPANDED_QA, ...MEGA_QA];
+    const documents = allQA.map((qa, idx) => ({
+        idx,
+        combined: qa.keywords.join(' '),
+    }));
+
+    // Config for longer queries (full sentences)
+    fuse_cache_long = new Fuse(documents, {
+        keys: ['combined'],
+        threshold: 0.3,  // Stricter for full sentences
+        minMatchCharLength: 2,
+        distance: 200,
+        ignoreLocation: true,
+        includeScore: true,
+    });
+
+    return fuse_cache_long;
+}
+
+/**
+ * Clean KB input (same as speech processor)
+ */
+function cleanKBInput(text) {
+    if (!text) return '';
+    let cleaned = text.toLowerCase().trim();
+    cleaned = cleaned.replace(/^[?!.,:;'"]+|[?!.,:;'"]+$/g, '');
+    const words = cleaned.split(/\s+/).filter(w => w.length > 0);
+    const deduped = [];
+    let lastWord = '';
+    for (const word of words) {
+        if (word !== lastWord) {
+            deduped.push(word);
+            lastWord = word;
+        }
+    }
+    return deduped.join(' ').trim();
+}
+
+export function findCommonAnswer(text, lang) {
+    if (!text || text.trim().length === 0) return null;
+
+    const cleaned = cleanKBInput(text);
+    const lower = cleaned.toLowerCase();
+    const allQA = [...COMMON_QA, ...EXPANDED_QA, ...MEGA_QA];
+
+    // FAST PATH: Exact keyword match (most reliable)
     for (const qa of allQA) {
-        if (qa.keywords.some(k => lower.includes(k))) {
+        if (qa.keywords.some(k => lower.includes(k.toLowerCase()))) {
+            console.log(`[KB] Exact match found for "${cleaned}"`);
             return {
                 text: qa.answer[lang] || qa.answer.en,
                 action: qa.action || null,
             };
         }
     }
+
+    // Determine if input is SHORT or LONG
+    const wordCount = cleaned.split(/\s+/).length;
+    const isShortInput = wordCount <= 3;
+
+    // FUZZY PATH: Use appropriate fuse.js config
+    try {
+        const fuse = isShortInput ? getShortFuseIndex() : getLongFuseIndex();
+        const results = fuse.search(lower);
+
+        if (results.length > 0) {
+            const topResult = results[0];
+            const score = topResult.score;
+
+            // Score threshold depends on input length
+            const threshold = isShortInput ? 0.7 : 0.4;
+
+            if (score < threshold) {
+                console.log(`[KB] Fuzzy match (${isShortInput ? 'SHORT' : 'LONG'}) for "${cleaned}" (score: ${score.toFixed(2)})`);
+                const qa = allQA[topResult.item.idx];
+                return {
+                    text: qa.answer[lang] || qa.answer.en,
+                    action: qa.action || null,
+                };
+            }
+        }
+    } catch (err) {
+        console.warn('[KB] Fuse.js search error:', err);
+    }
+
+    // No match found
+    console.log(`[KB] No match for "${cleaned}"`);
     return null;
 }
 

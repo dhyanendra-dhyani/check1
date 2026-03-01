@@ -7,6 +7,7 @@
 
 import { useState, useEffect } from 'react';
 import { t } from '../utils/i18n';
+import { useVoice } from './VoiceContext';
 
 const MOCK_CITIZEN = {
     aadhaar: 'XXXX-XXXX-4829',
@@ -17,7 +18,28 @@ const MOCK_CITIZEN = {
     address: 'H.No 234, Sector 5, Ludhiana, Punjab',
 };
 
+// Digit names for blind mode speaking
+const DIGIT_NAMES_HI = {
+    '0': 'zero', '1': 'ek', '2': 'do', '3': 'teen', '4': 'char',
+    '5': 'paanch', '6': 'chhah', '7': 'saat', '8': 'aath', '9': 'nau',
+};
+
+function speakDigit(digit, lang) {
+    const name = lang === 'en' ? digit : (DIGIT_NAMES_HI[digit] || digit);
+    const u = new SpeechSynthesisUtterance(name);
+    u.lang = lang === 'en' ? 'en-IN' : 'hi-IN';
+    u.rate = 1.3;
+    u.volume = 1;
+    // Tell VoiceAgent to pause recognition during digit TTS
+    window.dispatchEvent(new CustomEvent('va-digit-start'));
+    u.onend = () => window.dispatchEvent(new CustomEvent('va-digit-end'));
+    u.onerror = () => window.dispatchEvent(new CustomEvent('va-digit-end'));
+    window.speechSynthesis.cancel();
+    window.speechSynthesis.speak(u);
+}
+
 export default function AuthScreen({ lang, onAuthenticated, onBack }) {
+    const { blindMode } = useVoice();
     const [authMode, setAuthMode] = useState(null);
     const [isScanning, setIsScanning] = useState(false);
     const [scanProgress, setScanProgress] = useState(0);
@@ -173,12 +195,21 @@ export default function AuthScreen({ lang, onAuthenticated, onBack }) {
                                 type="text"
                                 maxLength={6}
                                 value={otpInput}
-                                onChange={(e) => setOtpInput(e.target.value.replace(/\D/g, ''))}
+                                onChange={(e) => {
+                                    const newVal = e.target.value.replace(/\D/g, '');
+                                    // Speak the last digit typed in blind mode
+                                    if (blindMode && newVal.length > otpInput.length) {
+                                        const lastDigit = newVal[newVal.length - 1];
+                                        speakDigit(lastDigit, lang);
+                                    }
+                                    setOtpInput(newVal);
+                                }}
                                 placeholder="● ● ● ● ● ●"
                                 className="w-full p-4 rounded-xl bg-white/5 border-2 border-white/10 text-center text-3xl font-mono text-white tracking-[0.5em] focus:border-indigo-500 focus:outline-none"
                                 aria-label="Enter OTP"
                                 autoFocus
                             />
+
 
                             {error && <p className="text-red-400 text-sm mt-3 font-semibold">{error}</p>}
 

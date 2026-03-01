@@ -1,20 +1,14 @@
 /**
  * ═══════════════════════════════════════════════════════════
- * VoiceAgent v19 — Bulletproof Listening + Blind Mode
+ * VoiceAgent v21 — Direct Gemini Architecture
  *
- * KEY IMPROVEMENTS over v18:
- *   1. isRecognizingRef tracks ACTUAL running state, not just object existence
- *   2. forceRestartRecognition() — unconditional kill+restart
- *   3. Proactive announcements on EVERY page/route change
- *   4. Blind mode: passes pageData to Gemini for full screen reading
- *   5. Open-ended conversation — no option limits
- *   6. Recognition lifecycle is bulletproof
+ * ALL queries go directly to Gemini 2.5. No local KB, no quick lookup.
+ * 15 API keys in round-robin. Fastest possible response.
  *
  * Architecture:
- *   - Recognition runs CONTINUOUSLY (never paused during TTS)
- *   - Gemini handles ALL conversation intelligence
- *   - Gemini TTS primary, browser SpeechSynthesis fallback
- *   - Smart barge-in: user speaks → cancel TTS → process immediately
+ *   - Clean input
+ *   - Send directly to Gemini
+ *   - Execute action + speak response
  * ═══════════════════════════════════════════════════════════
  */
 
@@ -32,7 +26,7 @@ const SPEECH_LANGS = {
 
 const VoiceAgent = memo(function VoiceAgent({
     lang, setLang, screen, setScreen, voiceMode,
-    navigate, setCitizen, addLog, blindMode: blindModeProp, setBlindMode: setBlindModeProp, children,
+    navigate, setCitizen, addLog, blindMode: blindModeProp, setBlindMode: setBlindModeProp, setPendingIntent, citizen, children,
 }) {
     const [isActive, setIsActive] = useState(false);
     const [status, setStatus] = useState('idle');
@@ -66,6 +60,14 @@ const VoiceAgent = memo(function VoiceAgent({
     const blindModeRef = useRef(blindModeProp || false);
     // Guard against double-greeting on initial mount
     const initialGreetingDoneRef = useRef(false);
+    // Flag to skip next proactive help (set after voice-initiated navigation)
+    const skipNextProactiveRef = useRef(false);
+    // Track when TTS ended for post-TTS echo filtering
+    const ttsEndTimeRef = useRef(0);
+
+    // Simple transcript deduplication
+    const lastProcessedRef = useRef('');
+    const lastProcessedTimeRef = useRef(0);
 
     const location = useLocation();
 
@@ -125,6 +127,13 @@ const VoiceAgent = memo(function VoiceAgent({
                 return;
             }
 
+            // SELF-LISTENING PREVENTION: Kill recognition completely before TTS plays
+            // Increment gen FIRST so the stale onend handler is blocked from restarting
+            recGenRef.current++;
+            try { recognitionRef.current?.abort(); } catch { }
+            recognitionRef.current = null;
+            isRecognizingRef.current = false;
+
             // Cancel any ongoing speech
             window.speechSynthesis.cancel();
 
@@ -139,14 +148,22 @@ const VoiceAgent = memo(function VoiceAgent({
             if (v) u.voice = v;
 
             const finish = () => {
-                isSpeakingRef.current = false;
+                ttsEndTimeRef.current = Date.now();
                 ttsResolverRef.current = null;
                 setStatus('listening');
-                // CRITICAL: force-restart recognition after every TTS completion
-                if (isActiveRef.current && !isRecognizingRef.current) {
-                    try { recognitionRef.current?.abort(); } catch { }
-                    recognitionRef.current = null;
-                    isRecognizingRef.current = false;
+                // Keep isSpeakingRef TRUE for 500ms after TTS ends
+                // This prevents recognition from processing its own echo
+                // (recognition results lag behind actual audio by 200-500ms)
+                setTimeout(() => {
+                    isSpeakingRef.current = false;
+                }, 500);
+                // Restart recognition AFTER TTS + cooldown
+                if (isActiveRef.current) {
+                    setTimeout(() => {
+                        if (isActiveRef.current && !isRecognizingRef.current) {
+                            window.dispatchEvent(new CustomEvent('va-restart-recognition'));
+                        }
+                    }, 600);
                 }
                 resolve();
             };
@@ -229,31 +246,38 @@ const VoiceAgent = memo(function VoiceAgent({
 
         r.onresult = (e) => {
             if (gen !== recGenRef.current) return; // stale
+
             const last = e.results[e.results.length - 1];
 
-            // ═══ SMART BARGE-IN ═══
+            // ═══ BARGE-IN (only on FINAL results, high confidence) ═══
+            // NEVER barge-in on interim — assistant's own voice triggers false positives
             if (isSpeakingRef.current) {
                 if (last.isFinal) {
                     const conf = last[0].confidence || 0;
                     const txt = last[0].transcript.trim();
-                    if (conf > 0.4 && txt.length >= 2) {
-                        log(`🔇 Barge-in: "${txt}" (${(conf * 100).toFixed(0)}%)`);
+                    const lastSpoken = (lastReply || '').toLowerCase();
+                    const isSelfEcho = lastSpoken && lastSpoken.includes(txt.toLowerCase());
+                    // Calculate overlap ratio between assistant reply and transcript
+                    const lastWords = lastSpoken.split(/\s+/).filter(w => w.length > 2);
+                    const tWords = txt.toLowerCase().split(/\s+/).filter(w => w.length > 2);
+                    let matchRatio = 0;
+                    if (lastWords.length > 0 && tWords.length > 0) {
+                        const matchCount = tWords.filter(w => lastWords.includes(w)).length;
+                        matchRatio = matchCount / tWords.length;
+                    }
+                    // Barge-in only when extremely confident, short overlap with assistant speech,
+                    // and transcript isn't likely the assistant's own words.
+                    if (conf > 0.85 && txt.length >= 3 && !isSelfEcho && matchRatio < 0.3) {
+                        log(`🔇 Barge-in: "${txt}" (${(conf * 100).toFixed(0)}%) match=${(matchRatio * 100).toFixed(0)}%`);
                         stopAllTTS();
                         bargedInRef.current = true;
                         setStatus('listening');
                     } else {
-                        return;
+                        log(`🔇 Ignored during TTS: "${txt}" conf=${(conf * 100).toFixed(0)}% match=${(matchRatio * 100).toFixed(0)}% selfEcho=${isSelfEcho}`);
                     }
-                } else {
-                    const interimTxt = last[0].transcript.trim();
-                    if (interimTxt.length >= 4) {
-                        log(`🔇 Barge-in (interim): "${interimTxt}"`);
-                        stopAllTTS();
-                        bargedInRef.current = true;
-                        setStatus('listening');
-                    }
-                    return;
                 }
+                // During TTS we ignore interim and most final results — do not process further
+                return;
             }
 
             clearTimeout(rePromptTimerRef.current);
@@ -262,10 +286,49 @@ const VoiceAgent = memo(function VoiceAgent({
                 const t = last[0].transcript.trim();
                 const confidence = last[0].confidence || 0;
 
-                if (t.length < 2) return;
-                if (confidence > 0 && confidence < 0.3) { log(`🔇 Low: "${t}"`); return; }
-                const NOISE = ['hmm', 'hm', 'uh', 'uhh', 'ah', 'ahh', 'um', 'umm', 'oh', 'mm', 'ha', 'aah'];
-                if (NOISE.includes(t.toLowerCase())) { log(`🔇 Noise: "${t}"`); return; }
+                // ═══ BILL PAGE CONFIRMATION BYPASS ═══
+                // On bill pages, short confirmation words MUST pass through
+                // (otherwise "hn", "haan", "ok" get filtered by length/noise checks)
+                const onBillPage = window.location.pathname.includes('/bill/');
+                // Match single or repeated confirm words (e.g., "hn", "hn hn", "haan haan", "हाँ") + payment words
+                const confirmRegex = /^(hn|hnn|hm|ha|han|haan|ha+n|yes|theek|thik|ok|ji|pay|jama|bharo|karo|kar do|kr do|paisa|hnji|हाँ|हां|हँ)(?:\s+(hn|hnn|hm|ha|han|haan|ha+n|yes|theek|thik|ok|ji|pay|jama|bharo|karo|kar do|kr do|paisa|hnji|हाँ|हां|हँ))*$/i;
+                const isConfirmOnBill = onBillPage && (confirmRegex.test(t) || t.toLowerCase().includes('upi') || t.toLowerCase().includes('cash') || t.toLowerCase().includes('card') || t.toLowerCase().includes('naqd'));
+
+                if (!isConfirmOnBill) {
+                    if (t.length < 3) return;
+                    if (confidence > 0 && confidence < 0.5) { log(`🔇 Low conf: "${t}" (${(confidence * 100).toFixed(0)}%)`); return; }
+                }
+
+                // Expanded noise filter — catches ambient sounds, self-echo, filler, and digit TTS
+                // (confirmation words on bill pages skip this filter)
+                const NOISE = [
+                    'hmm', 'hm', 'uh', 'uhh', 'ah', 'ahh', 'um', 'umm', 'oh', 'mm', 'aah',
+                    'huh', 'aha', 'hehe', 'hmm hmm', 'ahem', 'tch', 'shh', 'ugh', 'ooh', 'eeh',
+                    'the', 'a', 'an', 'is', 'it', 'i', 'me', 'my', 'so', 'but', 'and', 'or',
+                    'na', 'nah', 'hmm hmm',
+                    // Digit names (blind mode TTS — in case they leak through)
+                    'ek', 'do', 'teen', 'char', 'paanch', 'chhah', 'saat', 'aath', 'nau', 'zero',
+                    'saaf', 'mita diya', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine',
+                ];
+                if (!isConfirmOnBill && NOISE.includes(t.toLowerCase())) { log(`🔇 Noise: "${t}"`); return; }
+
+                // ═══ SELF-ECHO DETECTION ═══
+                // If transcript arrived within 800ms of TTS ending, likely self-echo
+                if (Date.now() - ttsEndTimeRef.current < 800) {
+                    log(`🔇 Post-TTS echo (${Date.now() - ttsEndTimeRef.current}ms): "${t}"`);
+                    return;
+                }
+                // Check if transcript words significantly overlap with last spoken reply
+                const lastWords = (lastReply || '').toLowerCase().split(/\s+/).filter(w => w.length > 2);
+                const transcriptWords = t.toLowerCase().split(/\s+/).filter(w => w.length > 2);
+                if (lastWords.length > 0 && transcriptWords.length > 0) {
+                    const matchCount = transcriptWords.filter(w => lastWords.includes(w)).length;
+                    const matchRatio = matchCount / transcriptWords.length;
+                    if (matchRatio > 0.4) {
+                        log(`🔇 Self-echo (${(matchRatio * 100).toFixed(0)}% match): "${t}"`);
+                        return;
+                    }
+                }
 
                 log(`📝 "${t}" (${(confidence * 100).toFixed(0)}%)`);
                 lastInterimRef.current = '';
@@ -286,13 +349,13 @@ const VoiceAgent = memo(function VoiceAgent({
                 clearTimeout(silenceTimerRef.current);
                 silenceTimerRef.current = setTimeout(() => {
                     const t = lastInterimRef.current?.trim();
-                    if (t && t.length > 1 && !processingRef.current && !isSpeakingRef.current) {
+                    if (t && t.length > 2 && !processingRef.current && !isSpeakingRef.current) {
                         log(`⏱️ Silence commit: "${t}"`);
                         handleTranscript(t);
                         lastInterimRef.current = '';
                         setInterimText('');
                     }
-                }, 1200);
+                }, 1800);
             }
         };
 
@@ -312,8 +375,8 @@ const VoiceAgent = memo(function VoiceAgent({
             if (gen !== recGenRef.current) return; // stale — new instance superseded us
             isRecognizingRef.current = false;
             recognitionRef.current = null;
-            // ALWAYS restart unless deactivated
-            if (isActiveRef.current) {
+            // NEVER restart during TTS — prevents self-listening
+            if (isActiveRef.current && !isSpeakingRef.current) {
                 setTimeout(() => startRecognition(), 80);
             }
         };
@@ -329,24 +392,63 @@ const VoiceAgent = memo(function VoiceAgent({
         }
     }, [log, stopAllTTS]);
 
-    // ══════════════════════════════════════════════════
-    // HANDLE TRANSCRIPT — Gemini-powered intelligence
-    // ══════════════════════════════════════════════════
+    // ═══ BRIDGE: Restart recognition after TTS via custom event ═══
+    // This avoids circular dependency between ttsSpeak and startRecognition
+    useEffect(() => {
+        const handler = () => {
+            if (isActiveRef.current && !isRecognizingRef.current && !isSpeakingRef.current) {
+                startRecognition();
+            }
+        };
+        window.addEventListener('va-restart-recognition', handler);
+        return () => window.removeEventListener('va-restart-recognition', handler);
+    }, [startRecognition]);
 
-    const handleTranscript = useCallback(async (transcript) => {
+    // ══════════════════════════════════════════════════
+    // HANDLE TRANSCRIPT — Direct to Gemini
+    // ══════════════════════════════════════════════════
+    // 1. Clean & deduplicate input
+    // 2. Filter noise
+    // 3. Send directly to Gemini
+
+    const handleTranscript = useCallback(async (rawTranscript) => {
+        const L = langRef.current;
+
+        // ═══ STEP 1: Clean input ═══
+        const cleaned = rawTranscript.toLowerCase().trim()
+            .replace(/^[?!.,:;'"]+|[?!.,:;'"]+$/g, '')  // remove edge punctuation
+            .split(/\s+/).filter((w, i, arr) => w !== arr[i - 1]).join(' ')  // deduplicate consecutive words
+            .trim();
+
+        if (!cleaned || cleaned.length < 3) return;
+
+        // Extended noise filter at transcript level too
+        const NOISE_WORDS = [
+            'hmm', 'hm', 'uh', 'uhh', 'ah', 'ahh', 'um', 'umm', 'oh', 'mm', 'ha', 'aah',
+            'huh', 'the', 'a', 'an', 'is', 'it', 'so', 'but', 'and',
+        ];
+        if (NOISE_WORDS.includes(cleaned)) return;
+
+        // Simple deduplication: skip if same text within 500ms
+        const now = Date.now();
+        if (cleaned === lastProcessedRef.current && (now - lastProcessedTimeRef.current) < 500) {
+            log(`🔇 Duplicate: "${cleaned}"`);
+            return;
+        }
+        lastProcessedRef.current = cleaned;
+        lastProcessedTimeRef.current = now;
+
         if (processingRef.current) return;
         processingRef.current = true;
         bargedInRef.current = false;
         pendingTranscriptRef.current = null;
         clearTimeout(rePromptTimerRef.current);
 
-        setLastTranscript(transcript);
+        setLastTranscript(cleaned);
         setInterimText('');
         lastInterimRef.current = '';
         setStatus('processing');
-        log(`🎤 "${transcript}"`);
-
-        const L = langRef.current;
+        log(`🎤 "${cleaned}"`);
 
         // Helper: speak and check barge-in
         const say = async (text) => {
@@ -369,47 +471,33 @@ const VoiceAgent = memo(function VoiceAgent({
             if (isActiveRef.current && !bargedInRef.current) {
                 setStatus('listening');
                 startRePromptTimer();
-                // FORCE restart recognition — don't just check, GUARANTEE it's running
-                log('🔄 Post-processing: force-restarting recognition');
-                try { recognitionRef.current?.abort(); } catch { }
+                log('🔄 Restarting recognition...');
+                recGenRef.current++;
+                try {
+                    if (recognitionRef.current) {
+                        recognitionRef.current.abort();
+                    }
+                } catch (e) {
+                    log(`⚠️ Abort error: ${e.message}`);
+                }
                 recognitionRef.current = null;
                 isRecognizingRef.current = false;
-                setTimeout(() => startRecognition(), 200);
+                setTimeout(() => {
+                    if (isActiveRef.current) {
+                        startRecognition();
+                    }
+                }, 50);
             }
         };
 
-        // ═══ TRY KNOWLEDGE BASE FIRST (instant, no API) ═══
+        // ═══ DIRECT GEMINI — All queries go here ═══
         try {
-            const { findCommonAnswer } = await import('../utils/voiceKnowledgeBase');
-            const kbResult = findCommonAnswer(transcript, L);
-            if (kbResult && kbResult.text) {
-                log(`📚 KB match: "${kbResult.text.substring(0, 50)}..."`);
-                playClickSound();
-                hasInteractedRef.current = true;
-                historyRef.current = [
-                    ...historyRef.current.slice(-8),
-                    `User: ${transcript}`,
-                    `Assistant: ${kbResult.text}`
-                ];
-                if (!bargedInRef.current) await say(kbResult.text);
-                if (!bargedInRef.current && kbResult.action) {
-                    log(`🎯 KB Action: ${kbResult.action}`);
-                    executeAction(kbResult.action, {});
-                }
-                done();
-                return;
-            }
-        } catch (kbErr) {
-            log(`⚠️ KB lookup error: ${kbErr.message}`);
-        }
-
-        // ═══ FALLBACK: SEND TO GEMINI ═══
-        try {
+            log(`🌐 Gemini...`);
             playClickSound();
             hasInteractedRef.current = true;
 
             const result = await getAssistantGuidance(
-                transcript,
+                cleaned,
                 screenRef.current,
                 window.location.pathname,
                 L,
@@ -418,31 +506,27 @@ const VoiceAgent = memo(function VoiceAgent({
                 pageDataRef.current
             );
 
-            // Update history
             historyRef.current = [
                 ...historyRef.current.slice(-8),
-                `User: ${transcript}`,
+                `User: ${cleaned}`,
                 `Assistant: ${result.text || ''}`
             ];
 
-            // Speak the response
             if (result.text && !bargedInRef.current) {
                 await say(result.text);
             }
 
-            // Execute action
             if (!bargedInRef.current && result.action) {
-                log(`🎯 Action: ${result.action}`);
                 executeAction(result.action, result.params);
             }
 
         } catch (err) {
-            log(`❌ Gemini: ${err.message}`);
+            log(`❌ Error: ${err.message}`);
             if (!bargedInRef.current) {
-                const fallbackMsg = L === 'hi'
+                const msg = L === 'hi'
                     ? 'माफ़ कीजिए, कुछ समस्या हुई। कृपया फिर से बोलिए।'
                     : 'Sorry, there was an issue. Please try again.';
-                await say(fallbackMsg);
+                await say(msg);
             }
         }
 
@@ -475,6 +559,18 @@ const VoiceAgent = memo(function VoiceAgent({
     // ══════════════════════════════════════════════════
 
     const executeAction = useCallback((action, params) => {
+        // Set skip flag for ALL navigation actions — prevents double page announcements
+        const NAV_ACTIONS = [
+            'navigate_to_gateway', 'set_screen_guest', 'set_screen_citizen_auth',
+            'navigate_bill_electricity', 'navigate_bill_water', 'navigate_bill_gas',
+            'navigate_complaint', 'navigate_property_tax', 'navigate_naam_change',
+            'navigate_new_connection', 'navigate_home', 'navigate_admin', 'go_back',
+            'navigate', 'set_screen',
+        ];
+        if (NAV_ACTIONS.includes(action)) {
+            skipNextProactiveRef.current = true;
+        }
+
         switch (action) {
             case 'navigate_to_gateway':
                 setScreen('gateway');
@@ -499,14 +595,51 @@ const VoiceAgent = memo(function VoiceAgent({
                 navigate('/bill/gas');
                 break;
             case 'navigate_complaint':
+                // Complaint requires citizen login
+                setPendingIntent?.('complaint');
+                if (citizen) {
+                    setScreen('guest');
+                    navigate('/complaint');
+                    log('📝 Redirecting to complaint (already logged in)');
+                } else {
+                    setScreen('citizen-auth');
+                    log('🔐 Redirecting to citizen login for complaint');
+                }
+                break;
+            case 'navigate_property_tax':
                 setScreen('guest');
-                navigate('/complaint');
+                navigate('/bill/property-tax');
+                log('🏠 Redirecting to property tax');
+                break;
+            case 'navigate_naam_change':
+                setPendingIntent?.('naam_change');
+                if (citizen) {
+                    setScreen('guest');
+                    navigate('/name-change');
+                    log('✨ Redirecting to name change form (already logged in)');
+                } else {
+                    setScreen('citizen-auth');
+                    log('🔐 Redirecting to citizen login for name change');
+                }
+                break;
+            case 'navigate_new_connection':
+                setPendingIntent?.('new_connection');
+                if (citizen) {
+                    setScreen('guest');
+                    navigate('/new-connection');
+                    log('✨ Redirecting to new connection form (already logged in)');
+                } else {
+                    setScreen('citizen-auth');
+                    log('🔐 Redirecting to citizen login for new connection');
+                }
                 break;
             case 'navigate_home':
                 navigate('/');
+                log('🏠 Redirecting to home');
                 break;
             case 'navigate_admin':
                 navigate('/admin');
+                log('⚙️ Redirecting to admin');
                 break;
             case 'go_back':
                 navigate(-1);
@@ -514,8 +647,30 @@ const VoiceAgent = memo(function VoiceAgent({
             case 'stop_voice':
                 deactivateVoice();
                 break;
+
+            // ═══ BILL FLOW ACTIONS ═══
+            case 'confirm_pay':
+            case 'confirm_yes':
+                // Dispatch to BillPayment (it will ignore the one that doesn't apply to its current step)
+                window.dispatchEvent(new CustomEvent('va-bill-action', { detail: { action: 'confirm_pay' } }));
+                window.dispatchEvent(new CustomEvent('va-bill-action', { detail: { action: 'fetch_bill' } }));
+                break;
+            case 'confirm_no':
+                break; // Do nothing, just acknowledge
+            case 'pay_upi':
+                window.dispatchEvent(new CustomEvent('va-bill-action', { detail: { action: 'pay_upi' } }));
+                break;
+            case 'pay_cash':
+                window.dispatchEvent(new CustomEvent('va-bill-action', { detail: { action: 'pay_cash' } }));
+                break;
+            case 'pay_card':
+                window.dispatchEvent(new CustomEvent('va-bill-action', { detail: { action: 'pay_card' } }));
+                break;
+            case 'fetch_bill':
+                window.dispatchEvent(new CustomEvent('va-bill-action', { detail: { action: 'fetch_bill' } }));
+                break;
+
             default:
-                // Handle legacy intent format from Gemini
                 if (action === 'navigate' && params?.route) {
                     navigate(params.route);
                 } else if (action === 'set_screen' && params?.screen) {
@@ -523,7 +678,7 @@ const VoiceAgent = memo(function VoiceAgent({
                 }
                 break;
         }
-    }, [navigate, setScreen]);
+    }, [navigate, setScreen, citizen, setPendingIntent]);
 
     // ══════════════════════════════════════════════════
     // SCREEN/ROUTE CHANGE → Proactive help
@@ -539,6 +694,13 @@ const VoiceAgent = memo(function VoiceAgent({
         log(`📺 Screen: ${prevScreen} → ${screen}`);
 
         if (!prevScreen || screen === 'idle') return;
+
+        // Skip if voice-initiated navigation already spoke guidance
+        if (skipNextProactiveRef.current) {
+            skipNextProactiveRef.current = false;
+            log('📺 Skipping proactive help (voice-initiated)');
+            return;
+        }
 
         // Cancel old TTS immediately
         stopAllTTS();
@@ -601,6 +763,13 @@ const VoiceAgent = memo(function VoiceAgent({
         lastRouteRef.current = currentPath;
         log(`📍 Route: ${prevPath} → ${currentPath}`);
 
+        // Skip if voice-initiated navigation already spoke guidance
+        if (skipNextProactiveRef.current) {
+            skipNextProactiveRef.current = false;
+            log('📍 Skipping proactive help (voice-initiated)');
+            return;
+        }
+
         stopAllTTS();
         bargedInRef.current = true;
 
@@ -644,14 +813,91 @@ const VoiceAgent = memo(function VoiceAgent({
         setTimeout(speakGuidance, 400);
     }, [location.pathname, voiceMode, log, ttsSpeak, stopAllTTS, startRecognition, startRePromptTimer, ensureRecognitionAlive]);
 
+    // ═══ BILL STEP VOICE GUIDE ═══
+    // Listens for bill payment step changes and speaks relevant details
+    useEffect(() => {
+        if (!isActive || !voiceMode) return;
+
+        const handler = async (e) => {
+            const d = e.detail;
+            if (!d || !isActiveRef.current) return;
+            // Skip initial mount (input step) — no need to speak
+            if (d.currentStep === 'input') return;
+            const L = langRef.current;
+            const isHi = L !== 'en';
+
+            let text = '';
+
+            if (d.currentStep === 'bill' && d.billFound) {
+                // Bill details page — read the bill
+                const firstChar = d.consumerName.charAt(0).toUpperCase();
+                const spokenId = d.consumerId ? d.consumerId.split('').join(' ') : '';
+
+                if (citizen) {
+                    text = isHi
+                        ? `बिल मिल गया। खाता संख्या ${spokenId}। धारक का नाम ${d.consumerName} है। कुल राशि ${d.amount} रुपये है। क्या आप इसे जमा करना चाहते हैं? हाँ या ना बोलिए।`
+                        : `Bill found. Account ${spokenId}. Name is ${d.consumerName}. Amount to pay is ₹${d.amount}. Would you like to pay? Say yes or no.`;
+                } else {
+                    text = isHi
+                        ? `बिल मिल गया। खाता संख्या ${spokenId}। सुरक्षा के लिए नाम छिपाया गया है, जिसके नाम का पहला अक्षर ${firstChar} है। कुल राशि ${d.amount} रुपये है। क्या यह आपका बिल है? हाँ या ना बोलिए।`
+                        : `Bill found. Account ${spokenId}. For security, the name is hidden, starting with letter ${firstChar}. Amount is ₹${d.amount}. Is this your bill? Say yes or no.`;
+                }
+            } else if (d.currentStep === 'pay' && !d.paymentMethod) {
+                // Payment method selection
+                text = isHi
+                    ? `ठीक है, पैसा भुगतान करें, आप कैश, कार्ड, और UPI बोल कर सेलेक्ट कर सकते हैं।`
+                    : `Okay, proceed to payment. You can select Cash, Card, or UPI by speaking.`;
+            } else if (d.currentStep === 'success' && d.paymentComplete) {
+                // Payment success
+                text = isHi
+                    ? `पेमेंट सफल हो गई! लेन-देन नंबर ${d.transactionId}। रसीद डाउनलोड कर सकते हैं। होम पेज पर जाने के लिए बोलिए।`
+                    : `Payment successful! Transaction ID: ${d.transactionId}. You can download the receipt. Say home to go back.`;
+            }
+
+            if (text) {
+                // Small delay to let UI render first
+                await new Promise(r => setTimeout(r, 500));
+                if (isActiveRef.current && !bargedInRef.current) {
+                    stopAllTTS();
+                    setLastReply(text);
+                    await ttsSpeak(text, L);
+                    if (isActiveRef.current) {
+                        setStatus('listening');
+                        startRePromptTimer();
+                    }
+                }
+            }
+        };
+
+        window.addEventListener('va-bill-step', handler);
+        return () => window.removeEventListener('va-bill-step', handler);
+    }, [isActive, voiceMode, ttsSpeak, stopAllTTS, startRePromptTimer, log]);
+
+    // ═══ DIGIT TTS GUARD ═══
+    // When BillPayment/AuthScreen speaks a digit, mark as speaking
+    // so recognition ignores the sound
+    useEffect(() => {
+        const onStart = () => { isSpeakingRef.current = true; };
+        const onEnd = () => {
+            // Small delay to let audio fully stop before allowing recognition
+            setTimeout(() => { isSpeakingRef.current = false; }, 200);
+        };
+        window.addEventListener('va-digit-start', onStart);
+        window.addEventListener('va-digit-end', onEnd);
+        return () => {
+            window.removeEventListener('va-digit-start', onStart);
+            window.removeEventListener('va-digit-end', onEnd);
+        };
+    }, []);
+
     // ═══ PERIODIC RECOGNITION HEALTH CHECK (1.5s) ═══
     // Runs ALWAYS while active — checks every 1.5s and force-restarts if dead
     useEffect(() => {
         if (!isActive) return;
         const interval = setInterval(() => {
             if (!isActiveRef.current) return;
-            // Always check, even during speaking (recognition should still be running)
-            if (!isRecognizingRef.current && !processingRef.current) {
+            // NEVER restart during TTS — prevents self-listening
+            if (!isRecognizingRef.current && !processingRef.current && !isSpeakingRef.current) {
                 log('🔄 Health check: recognition dead → force-restarting');
                 try { recognitionRef.current?.abort(); } catch { }
                 recognitionRef.current = null;

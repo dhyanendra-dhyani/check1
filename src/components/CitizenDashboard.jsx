@@ -21,12 +21,12 @@ const myComplaints = [
 ];
 
 const availableServices = [
-    { label: 'Apply New Connection', icon: '🆕', route: '/new-connection' },
-    { label: 'Name Change', icon: '✏️', route: '/complaint' },
-    { label: 'Print Certificate', icon: '📜', route: '/complaint' },
-    { label: 'Report Issue', icon: '📝', route: '/complaint' },
-    { label: 'Property Tax', icon: '🏠', route: '/bill/electricity' },
-    { label: 'View History', icon: '📊', route: '/admin' },
+    { label: 'Apply New Connection', labelHi: 'नया कनेक्शन', icon: '🆕', route: '/new-connection' },
+    { label: 'Name Change', labelHi: 'नाम बदलना', icon: '✏️', route: '/name-change' },
+    { label: 'Print Certificate', labelHi: 'प्रमाणपत्र', icon: '📜', route: '/complaint' },
+    { label: 'Report Issue', labelHi: 'समस्या बताएं', icon: '📝', route: '/complaint' },
+    { label: 'Property Tax', labelHi: 'संपत्ति कर', icon: '🏠', route: '/bill/electricity' },
+    { label: 'View History', labelHi: 'इतिहास', icon: '📊', route: '/admin' },
 ];
 
 const statusColors = {
@@ -36,9 +36,10 @@ const statusColors = {
     'in-progress': { bg: 'rgba(245,158,11,0.15)', text: '#FBBF24', label: 'In Progress' },
 };
 
-export default function CitizenDashboard({ lang, citizen, onLogout, isOnline }) {
+export default function CitizenDashboard({ lang, citizen, onLogout, isOnline, pendingIntent, clearPendingIntent }) {
     const navigate = useNavigate();
     const [activeTab, setActiveTab] = useState('bills');
+    const [showNaamChangeNotice, setShowNaamChangeNotice] = useState(pendingIntent === 'naam_change');
 
     const initials = citizen?.name?.split(' ').map(w => w[0]).join('') || 'VK';
 
@@ -68,6 +69,31 @@ export default function CitizenDashboard({ lang, citizen, onLogout, isOnline }) 
                     </button>
                 </div>
             </div>
+
+            {/* ── Pending Intent Notice (Name Change) ──────────────────────── */}
+            {showNaamChangeNotice && (
+                <div className="glass-card rounded-2xl p-4 mb-6 bg-blue-500/10 border border-blue-500/30 flex items-start justify-between gap-4 fast-slide-left">
+                    <div className="flex items-start gap-3 flex-1">
+                        <span className="text-2xl mt-0.5">✏️</span>
+                        <div>
+                            <p className="text-blue-300 font-bold">
+                                {lang === 'hi' ? 'नाम बदलना' : 'Name Change'}
+                            </p>
+                            <p className="text-white/70 text-sm">
+                                {lang === 'hi' 
+                                    ? 'आप अपना नाम बदलना चाहते हैं। नीचे "Name Change" विकल्प पर क्लिक करें।'
+                                    : 'You requested to change your name. Click "Name Change" below.'}
+                            </p>
+                        </div>
+                    </div>
+                    <button
+                        onClick={() => setShowNaamChangeNotice(false)}
+                        className="text-white/50 hover:text-white text-xl"
+                    >
+                        ✕
+                    </button>
+                </div>
+            )}
 
             {/* ── Tab Navigation ──────────────────────── */}
             <div className="flex gap-2 mb-6 overflow-x-auto pb-1">
@@ -159,12 +185,17 @@ export default function CitizenDashboard({ lang, citizen, onLogout, isOnline }) 
                         {availableServices.map((svc, i) => (
                             <button
                                 key={svc.label}
-                                onClick={() => navigate(svc.route)}
+                                onClick={() => {
+                                    if (svc.label.includes('Name') || svc.label.includes('नाम')) {
+                                        clearPendingIntent?.();
+                                    }
+                                    navigate(svc.route);
+                                }}
                                 className="glass-card rounded-2xl p-5 flex flex-col items-center gap-3 cursor-pointer border border-transparent hover:border-indigo-500/20 hover:scale-[1.02] transition-transform fast-scale-in"
                                 style={{ animationDelay: `${i * 0.05}s` }}
                             >
                                 <span className="text-3xl">{svc.icon}</span>
-                                <span className="text-white/80 font-semibold text-sm text-center">{svc.label}</span>
+                                <span className="text-white/80 font-semibold text-sm text-center">{lang === 'hi' ? svc.labelHi : svc.label}</span>
                             </button>
                         ))}
                     </div>

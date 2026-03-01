@@ -17,16 +17,37 @@ import { lookupBill, generateTxnId } from '../utils/mockData';
 import { saveOfflineTransaction } from '../utils/offlineSync';
 import { generatePaymentReceipt, downloadReceipt } from '../utils/pdfGenerator';
 import { useVoice } from './VoiceContext';
+import { extractConsumerId as extractId } from '../utils/voiceCommands';
 
-const SERVICE_META = {
-    electricity: { icon: '⚡', label: 'Electricity Bill', color: '#FBBF24' },
-    water: { icon: '💧', label: 'Water Bill', color: '#3B82F6' },
-    gas: { icon: '🔥', label: 'Gas Bill', color: '#F97316' },
+// No emoji in service metadata - emojis cause TTS issues
+const SERVICE_META_NOEM = {
+    electricity: { icon: 'E', label: 'Electricity Bill', color: '#FBBF24' },
+    water: { icon: 'W', label: 'Water Bill', color: '#3B82F6' },
+    gas: { icon: 'G', label: 'Gas Bill', color: '#F97316' },
 };
 
 function maskName(name) {
     if (!name) return '***';
     return name.split(' ').map(w => w.length <= 1 ? w : w[0] + '*'.repeat(w.length - 1)).join(' ');
+}
+
+/**
+ * Spell out alphanumeric ID character-by-character
+ * 365GHJ → "three, six, five, G, H, J"
+ */
+function spellOutId(id, lang = 'en') {
+    if (!id) return '';
+    const digitNames = {
+        en: { '0': 'zero', '1': 'one', '2': 'two', '3': 'three', '4': 'four', '5': 'five', '6': 'six', '7': 'seven', '8': 'eight', '9': 'nine' },
+        hi: { '0': 'zero', '1': 'one', '2': 'do', '3': 'teen', '4': 'char', '5': 'paanch', '6': 'chhah', '7': 'saat', '8': 'aath', '9': 'nau' }
+    };
+    const digits = digitNames[lang] || digitNames.en;
+
+    return id.toUpperCase().split('').map(char => {
+        if (char === '-') return 'dash';
+        if (digits[char]) return digits[char];
+        return char; // Letter remains as-is
+    }).join(', ');
 }
 
 function getOrGenerateBill(consumerId, serviceType) {
@@ -49,7 +70,7 @@ function getOrGenerateBill(consumerId, serviceType) {
 export default function BillPayment({ lang, isOnline }) {
     const { serviceType } = useParams();
     const navigate = useNavigate();
-    const meta = SERVICE_META[serviceType] || SERVICE_META.electricity;
+    const meta = SERVICE_META_NOEM[serviceType] || SERVICE_META_NOEM.electricity;
     const { setPageData, blindMode } = useVoice();
 
     const [step, setStep] = useState('input');
@@ -81,8 +102,13 @@ export default function BillPayment({ lang, isOnline }) {
         if (step === 'success') data.paymentComplete = true;
         setPageData?.(data);
 
+        // ═══ Dispatch bill step change for VoiceAgent to speak ═══
+        window.dispatchEvent(new CustomEvent('va-bill-step', { detail: data }));
+
         return () => setPageData?.(null);
     }, [step, consumerId, bill, payMethod, txnId, serviceType, meta.label, setPageData]);
+
+
 
     const fetchBill = useCallback(() => {
         if (consumerId.trim().length < 1) return;
@@ -92,15 +118,55 @@ export default function BillPayment({ lang, isOnline }) {
     }, [consumerId, serviceType, lang]);
 
     const handleNumpad = (key) => {
-        if (key === '⌫') setConsumerId(p => p.slice(0, -1));
-        else if (key === 'C') setConsumerId('');
-        else setConsumerId(p => p + key);
+        if (key === '⌫') {
+            setConsumerId(p => p.slice(0, -1));
+        } else if (key === 'C') {
+            setConsumerId('');
+        } else {
+            setConsumerId(p => p + key);
+        }
+
+        // Blind UX: Speak each key press aloud
+        if (blindMode) {
+            const DIGIT_NAMES_HI = {
+                '0': 'zero', '1': 'ek', '2': 'do', '3': 'teen', '4': 'char',
+                '5': 'paanch', '6': 'chhah', '7': 'saat', '8': 'aath', '9': 'nau',
+                '⌫': 'mita diya', 'C': 'saaf',
+            };
+            const spokenKey = DIGIT_NAMES_HI[key] || key;
+            const u = new SpeechSynthesisUtterance(spokenKey);
+            u.lang = lang === 'en' ? 'en-IN' : 'hi-IN';
+            u.rate = 1.3;
+            u.volume = 1;
+            // Tell VoiceAgent to pause recognition during digit TTS
+            window.dispatchEvent(new CustomEvent('va-digit-start'));
+            u.onend = () => window.dispatchEvent(new CustomEvent('va-digit-end'));
+            u.onerror = () => window.dispatchEvent(new CustomEvent('va-digit-end'));
+            window.speechSynthesis.cancel();
+            window.speechSynthesis.speak(u);
+        }
     };
 
     const handleVoiceId = useCallback((transcript) => {
-        const id = extractConsumerId(transcript);
-        if (id) { setConsumerId(id); speak(`Consumer ID: ${id}`, lang); }
-        else { const c = transcript.replace(/\s+/g, '-').toUpperCase(); setConsumerId(c); speak(`ID: ${c}`, lang); }
+        const id = extractId(transcript);
+        if (id) {
+            setConsumerId(id);
+            // Spell out the ID: "Consumer ID: 3-6-5-G-J"
+            const spelled = spellOutId(id, lang);
+            window.speechSynthesis.cancel();
+            const utterance = new SpeechSynthesisUtterance(`Consumer ID: ${spelled}`);
+            utterance.lang = lang === 'hi' ? 'hi-IN' : 'en-IN';
+            window.speechSynthesis.speak(utterance);
+        }
+        else {
+            const c = transcript.replace(/\s+/g, '-').toUpperCase();
+            setConsumerId(c);
+            const spelled = spellOutId(c, lang);
+            window.speechSynthesis.cancel();
+            const utterance = new SpeechSynthesisUtterance(`ID: ${spelled}`);
+            utterance.lang = lang === 'hi' ? 'hi-IN' : 'en-IN';
+            window.speechSynthesis.speak(utterance);
+        }
     }, [lang]);
 
     const simulateQR = () => {
@@ -109,7 +175,7 @@ export default function BillPayment({ lang, isOnline }) {
         setConsumerId(id);
     };
 
-    const processPayment = async (method) => {
+    const processPayment = useCallback(async (method) => {
         setPayMethod(method);
         if (method === 'cash') setCashCount(0);
         const id = generateTxnId();
@@ -117,10 +183,42 @@ export default function BillPayment({ lang, isOnline }) {
         setTimeout(async () => {
             setStep('success');
             await saveOfflineTransaction({
-                txnId: id, consumerId, amount: bill.amount, service: serviceType, method, timestamp: new Date().toISOString(), synced: isOnline,
+                txnId: id, consumerId, amount: bill?.amount, service: serviceType, method, timestamp: new Date().toISOString(), synced: isOnline,
             });
         }, method === 'cash' ? 3000 : 2000);
-    };
+    }, [consumerId, bill, serviceType, isOnline]);
+
+    // ═══ Listen for voice actions from VoiceAgent ═══
+    useEffect(() => {
+        const handler = (e) => {
+            const action = e.detail?.action;
+            if (!action) return;
+
+            switch (action) {
+                case 'confirm_pay':
+                    if (step === 'bill' && bill) setStep('pay');
+                    break;
+                case 'pay_upi':
+                    if (step === 'pay' && bill && !payMethod) processPayment('upi');
+                    break;
+                case 'pay_cash':
+                    if (step === 'pay' && bill && !payMethod) processPayment('cash');
+                    break;
+                case 'pay_card':
+                    if (step === 'pay' && bill && !payMethod) processPayment('card');
+                    break;
+                case 'go_back':
+                    if (step !== 'input') setStep('input');
+                    else navigate(-1);
+                    break;
+                case 'fetch_bill':
+                    if (step === 'input' && consumerId.length >= 1) fetchBill();
+                    break;
+            }
+        };
+        window.addEventListener('va-bill-action', handler);
+        return () => window.removeEventListener('va-bill-action', handler);
+    }, [step, bill, payMethod, consumerId, navigate, fetchBill, processPayment]);
 
     useEffect(() => {
         if (payMethod === 'cash' && step === 'pay') {
